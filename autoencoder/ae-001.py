@@ -1,16 +1,16 @@
 from comet_ml import Experiment
+from comet_ml import Optimizer
+
 import tensorflow as tf
 import numpy as np
 from functools import partial
 from datetime import datetime
 
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
-
+# custom tools
 import sys
 sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/data_preprocessing')
 import preprocess
+import plot_utils
 
 
 def build_graph(hyperparams):
@@ -18,23 +18,37 @@ def build_graph(hyperparams):
     # TODO: implement dropout
     # dropout_rate = 0.5
 
-    dense_layer = partial(tf.layers.dense, activation=tf.nn.relu,
-                          kernel_initializer=tf.contrib.layers.xavier_initializer(),
-                          kernel_regularizer=tf.contrib.layers.l2_regularizer(hyperparams['scale']))
-
     with tf.name_scope("data"):
         X = tf.placeholder(tf.float32, [None, hyperparams['n_inputs']], name="X")
+        # for not running batch normalization at inference time
+        training = tf.placeholder_with_default(False, shape=(), name="training")
+
+    dense_layer = partial(tf.layers.dense,
+                          kernel_initializer=tf.contrib.layers
+                          .variance_scaling_initializer(seed=hyperparams['seed']),
+                          kernel_regularizer=tf.contrib.layers
+                          .l2_regularizer(hyperparams['scale']))
+    batch_norm = partial(tf.layers.batch_normalization, training=training,
+                         momentum=hyperparams['momentum'])
 
     with tf.name_scope("nn"):
         enc1 = dense_layer(X, 200, name="enc1")
-        enc2 = dense_layer(enc1, 100, name="enc2")
-        enc3 = dense_layer(enc2, 50, name="enc3")
-        h_base = dense_layer(enc3, 20, name="h_base")
-        dec1 = dense_layer(h_base, 50, name="dec1")  # TODO: maybe implement weight tying
-        dec2 = dense_layer(dec1, 100, name="dec2")
-        dec3 = dense_layer(dec2, 200, name="dec3")
-        output_layer = dense_layer(dec3, 500, name="output_layer")
-        output = tf.identity(output_layer, name="output")
+        enc_b1 = tf.nn.elu(batch_norm(enc1))
+        enc2 = dense_layer(enc_b1, 100, name="enc2")
+        enc_b2 = tf.nn.elu(batch_norm(enc2))
+        enc3 = dense_layer(enc_b2, 50, name="enc3")
+        enc_b3 = tf.nn.elu(batch_norm(enc3))
+        h_base = dense_layer(enc_b3, 20, name="h_base")
+        h_base_b = tf.nn.elu(batch_norm(h_base))
+        dec1 = dense_layer(h_base_b, 50, name="dec1")  # TODO: maybe implement weight tying
+        dec_b1 = tf.nn.elu(batch_norm(dec1))
+        dec2 = dense_layer(dec_b1, 100, name="dec2")
+        dec_b2 = tf.nn.elu(batch_norm(dec2))
+        dec3 = dense_layer(dec_b2, 200, name="dec3")
+        dec_b3 = tf.nn.elu(batch_norm(dec3))
+        output_layer = dense_layer(dec_b3, 500, name="output_layer")
+        output_b = tf.nn.elu(batch_norm(output_layer))
+        output = tf.identity(output_b, name="output")
 
     with tf.name_scope("loss"):
         loss_base = tf.nn.l2_loss(X - output, name="loss_base")
@@ -46,37 +60,13 @@ def build_graph(hyperparams):
                                                hyperparams['momentum'], use_nesterov=True)
         training_op = optimizer.minimize(loss_total)
 
-    return training_op, loss_total, X, output
+    return training_op, loss_total, X, training, output
 
 
-# TODO: make plots of original and reconstructed traces
-def plot_comparison(sess, data_test, X, output, hyperparams):
-    output_test = output.eval(session=sess, feed_dict={X: data_test})
-
-    fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(10, 6), sharex=True)
-    fig.suptitle('Comparison of test set and reconstruction')
-
-    np.random.seed(hyperparams['seed'])
-    randidx = np.random.randint(data_test.shape[0], size=(2, 3))
-
-    for x, y in np.ndindex((2, 3)):
-        axes[x, y].plot(data_test[randidx[x, y]], label="Input")
-        axes[x, y].plot(output_test[randidx[x, y]], label="Reconstruction")
-        axes[x, y].set_title("Index {}".format(randidx[x, y]))
-
-    axes[0, 0].legend()
-
-    # fig.tight_layout()
-
-    return fig, axes
-
-
-def train(hyperparams):
+def train(experiment, hyperparams):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    experiment = Experiment(project_name="sweep-langmuir-ml", workspace="physicistphil")
-    experiment.log_parameters(hyperparams)
 
-    training_op, loss_total, X, output = build_graph(hyperparams)
+    training_op, loss_total, X, training, output = build_graph(hyperparams)
 
     np.random.seed(hyperparams['seed'])
     data = preprocess.get_mirror_data(hyperparams['n_inputs'])
@@ -92,9 +82,12 @@ def train(hyperparams):
     init = tf.global_variables_initializer()
     saver = tf.train.Saver()
 
+    # for batch normalization updates
+    extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
-    with tf.Session() as sess:
+    with tf.Session(config=config) as sess:
         init.run()
         experiment.set_model_graph(sess.graph)
 
@@ -102,9 +95,9 @@ def train(hyperparams):
             for i in range(data_train.shape[0] // hyperparams['batch_size']):
                 X_batch = data_train[i * hyperparams['batch_size']:
                                      (i + 1) * hyperparams['batch_size']]
-                sess.run(training_op, feed_dict={X: X_batch})
-            X_batch = data_train[i * hyperparams['batch_size']:]
-            sess.run(training_op, feed_dict={X: X_batch})
+                sess.run([training_op, extra_update_ops], feed_dict={X: X_batch, training: True})
+            X_batch = data_train[(i + 1) * hyperparams['batch_size']:]
+            sess.run([training_op, extra_update_ops], feed_dict={X: X_batch, training: True})
 
             if epoch % 10 == 0:
                 loss_train = loss_total.eval(feed_dict={X: data_train}) / data_train.shape[0]
@@ -131,19 +124,38 @@ def train(hyperparams):
             experiment.log_metric('Loss', loss_test)
         saver.save(sess, "./saved_models/ae-001-{}-final.ckpt".format(now))
 
-        figure, axes = plot_comparison(sess, data_test, X, output, hyperparams)
         experiment.set_step(epoch)
-        experiment.log_figure(figure_name="comparison", figure=figure)
+        fig_compare, axes = plot_utils.plot_comparison(sess, data_test, X, output, hyperparams)
+        fig_worst, axes = plot_utils.plot_worst(sess, data_train, X, output, hyperparams)
+        experiment.log_figure(figure_name="comparison", figure=fig_compare)
+        experiment.log_figure(figure_name="worst examples", figure=fig_worst)
+        experiment.log_asset_data
+
 
 if __name__ == '__main__':
+    experiment = Experiment(project_name="sweep-langmuir-ml", workspace="physicistphil")
+
+    opt_config = {"algorithm": "bayes",
+                  "parameters": {"scale": {"type": "float",
+                                           "scalingType": "loguniform",
+                                           "min": 0.0
+                                            },
+                                 "learning_rate": {},
+                                 "momentum": {}},
+                  "spec": {"metric": "loss",
+                           "objective": "minimize"}}
+
     hyperparams = {'n_inputs': 500,
-                   'scale': 1e-2,
+                   'scale': 0.0,  # no regularization
                    'learning_rate': 1e-3,
                    'momentum': 0.9,
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,
                    'batch_size': 128,
-                   'steps': 1000,
+                   'steps': 100,
                    'seed': 42}
+
+    experiment.log_parameters(hyperparams)
+
     train(hyperparams)
