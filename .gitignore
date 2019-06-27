@@ -109,3 +109,6 @@ venv.bak/
 # sublime text files
 *.sublime-project
 *.sublime-workspace
+
+# tensorflow saved models
+autoencoder/saved_models/
