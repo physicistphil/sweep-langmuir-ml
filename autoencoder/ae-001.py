@@ -3,7 +3,10 @@ import tensorflow as tf
 import numpy as np
 from functools import partial
 from datetime import datetime
+
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
 
 import sys
 sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/data_preprocessing')
@@ -47,30 +50,23 @@ def build_graph(hyperparams):
 
 
 # TODO: make plots of original and reconstructed traces
-def plot_comparison(sess, data_train, data_test, X, output, hyperparams):
-    output_train = output.eval(session=sess, feed_dict={X: data_train})
+def plot_comparison(sess, data_test, X, output, hyperparams):
     output_test = output.eval(session=sess, feed_dict={X: data_test})
 
-    fig, axes = plt.subplots(nrows=2, ncols=2)
+    fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(10, 6), sharex=True)
+    fig.suptitle('Comparison of test set and reconstruction')
 
     np.random.seed(hyperparams['seed'])
-    randidx = np.random.randint(data_train.shape[0], size=2)
-    axes[0, 0].plot(data_train[randidx[0]], label="Original")
-    axes[0, 0].plot(output_train[randidx[0]], label="Reconstruction")
-    axes[0, 1].plot(data_train[randidx[1]])
-    axes[0, 1].plot(output_train[randidx[1]])
-    axes[0, 0].set_ylabel('Training set', rotation=0)
+    randidx = np.random.randint(data_test.shape[0], size=(2, 3))
+
+    for x, y in np.ndindex((2, 3)):
+        axes[x, y].plot(data_test[randidx[x, y]], label="Input")
+        axes[x, y].plot(output_test[randidx[x, y]], label="Reconstruction")
+        axes[x, y].set_title("Index {}".format(randidx[x, y]))
+
     axes[0, 0].legend()
 
-    np.random.seed(hyperparams['seed'])
-    randidx = np.random.randint(data_test.shape[0], size=2)
-    axes[1, 0].plot(data_test[randidx[0]])
-    axes[1, 0].plot(output_test[randidx[0]])
-    axes[1, 1].plot(data_test[randidx[1]])
-    axes[1, 1].plot(output_test[randidx[1]])
-    axes[1, 0].set_ylabel('Testing set', rotation=0)
-
-    fig.tight_layout()
+    # fig.tight_layout()
 
     return fig, axes
 
@@ -127,14 +123,17 @@ def train(hyperparams):
         loss_train = loss_total.eval(feed_dict={X: data_train}) / data_train.shape[0]
         loss_test = loss_total.eval(feed_dict={X: data_test}) / data_test.shape[0]
         print("Epoch {:5}\tWall: {} \tTraining loss: {:.4e}\tTesting loss: {:.4e}"
-                      .format(epoch, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-                              loss_train, loss_test))
+              .format(epoch, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                      loss_train, loss_test))
         with experiment.train():
             experiment.log_metric('Loss', loss_train)
         with experiment.test():
             experiment.log_metric('Loss', loss_test)
         saver.save(sess, "./saved_models/ae-001-{}-final.ckpt".format(now))
 
+        figure, axes = plot_comparison(sess, data_test, X, output, hyperparams)
+        experiment.set_step(epoch)
+        experiment.log_figure(figure_name="comparison", figure=figure)
 
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 500,
@@ -144,7 +143,7 @@ if __name__ == '__main__':
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,
-                   'batch_size': 64,
+                   'batch_size': 128,
                    'steps': 1000,
                    'seed': 42}
     train(hyperparams)
