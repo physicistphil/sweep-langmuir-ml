@@ -2,7 +2,6 @@ from comet_ml import Experiment
 
 import tensorflow as tf
 import numpy as np
-from functools import partial
 from datetime import datetime
 
 # custom tools
@@ -23,9 +22,9 @@ def train(experiment, hyperparams):
     np.random.shuffle(data)
     data_size = data.shape[0]
     data_train = data[0:int(data_size * hyperparams['frac_train']), :]
-    data_test = data[int(data_size * hyperparams['frac_test']):
-                     int(data_size * (hyperparams['frac_test'] + hyperparams['frac_valid'])), :]
-    data_valid = data[int(data_size * hyperparams['frac_valid']):, :]
+    data_test = data[int(data_size * hyperparams['frac_train']):
+                     int(data_size * (hyperparams['frac_test'] + hyperparams['frac_train'])), :]
+    data_valid = data[int(data_size * (hyperparams['frac_test'] + hyperparams['frac_train'])):, :]
 
     experiment.log_dataset_hash(data)
 
@@ -63,6 +62,8 @@ def train(experiment, hyperparams):
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/ae-001-{}.ckpt".format(now))
 
+        experiment.set_step(epoch)
+
         loss_train = loss_total.eval(feed_dict={X: data_train}) / data_train.shape[0]
         loss_test = loss_total.eval(feed_dict={X: data_test}) / data_test.shape[0]
         print("Epoch {:5}\tWall: {} \tTraining loss: {:.4e}\tTesting loss: {:.4e}"
@@ -72,14 +73,18 @@ def train(experiment, hyperparams):
             experiment.log_metric('Loss', loss_train)
         with experiment.test():
             experiment.log_metric('Loss', loss_test)
-        saver.save(sess, "./saved_models/ae-001-{}-final.ckpt".format(now))
+        saver.save(sess, "./saved_models/autoencoder-{}-final.ckpt".format(now))
 
-        experiment.set_step(epoch)
         fig_compare, axes = plot_utils.plot_comparison(sess, data_test, X, output, hyperparams)
         fig_worst, axes = plot_utils.plot_worst(sess, data_train, X, output, hyperparams)
         experiment.log_figure(figure_name="comparison", figure=fig_compare)
         experiment.log_figure(figure_name="worst examples", figure=fig_worst)
-        experiment.log_asset_data
+
+        # log tensorflow graph and variables
+        checkpoint_name = "./saved_models/autoencoder-{}-final.ckpt".format(now)
+        experiment.log_asset(checkpoint_name + ".index")
+        experiment.log_asset(checkpoint_name + ".meta")
+        experiment.log_asset(checkpoint_name + ".data-00000-of-00001")
 
 
 if __name__ == '__main__':
@@ -94,6 +99,6 @@ if __name__ == '__main__':
                    'batch_size': 256,
                    'steps': 100,
                    'seed': 42}
-    # experiment.add_tag("hyper-search")
+    experiment.add_tag("deep-7")
     experiment.log_parameters(hyperparams)
     train(experiment, hyperparams)
