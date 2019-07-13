@@ -29,7 +29,9 @@ def get_raw_mirror_data(input_size):
 
 
 def get_mirror_data(input_size):
-    # Multiply for 100 to account for the high-voltage probe.
+    # Divide by -11 because we measured the current backwards across 11 ohms. 
+    # Current is mA.
     # Multiplier information can be found in the HDF5 file run descriptions.
-    # This multiplier is only guaranteed to be correct for the mirror Langmuir sweeps
-    return get_raw_mirror_data(input_size) * 100
+    # This multiplier is only guaranteed to be correct for the mirror Langmuir sweeps that
+    # were taken during the week of June 17th, 2018.
+    return get_raw_mirror_data(input_size) / -11
