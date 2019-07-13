@@ -1,7 +1,10 @@
 from bapsflib import lapd
 import numpy as np
 
-def get_mirror_data(input_size):
+
+# This gets the raw, unscaled data straight from the digitizer.
+# Was used for initial testing of the autoencoder strategy.
+def get_raw_mirror_data(input_size):
     data_dir = "/home/phil/Desktop/sweeps/data/"
 
     try:
@@ -23,3 +26,10 @@ def get_mirror_data(input_size):
         np.savez(data_dir + 'data_concat', dataset=dataset)
 
     return dataset
+
+
+def get_mirror_data(input_size):
+    # Multiply for 100 to account for the high-voltage probe.
+    # Multiplier information can be found in the HDF5 file run descriptions.
+    # This multiplier is only guaranteed to be correct for the mirror Langmuir sweeps
+    return get_raw_mirror_data(input_size) * 100
