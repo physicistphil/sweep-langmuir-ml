@@ -6,27 +6,22 @@ from datetime import datetime
 
 # custom tools
 import sys
-sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/data_preprocessing')
+sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/data_processor')
 import preprocess
 import plot_utils
 import build_graph
 
 
+# TODO: split train data preparation so that we can also autoencode on synthetic traces
 def train(experiment, hyperparams):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
-    training_op, loss_total, X, training, output = build_graph.deep_7(hyperparams)
+    training_op, loss_total, X, training, output, hidden = build_graph.deep_3(hyperparams)
 
-    np.random.seed(hyperparams['seed'])
     data = preprocess.get_mirror_data(hyperparams['n_inputs'])
-    np.random.shuffle(data)
-    data_size = data.shape[0]
-    data_train = data[0:int(data_size * hyperparams['frac_train']), :]
-    data_test = data[int(data_size * hyperparams['frac_train']):
-                     int(data_size * (hyperparams['frac_test'] + hyperparams['frac_train'])), :]
-    data_valid = data[int(data_size * (hyperparams['frac_test'] + hyperparams['frac_train'])):, :]
+    data_train, data_test, data_valid = preprocess.shuffle_split_data(data, hyperparams)
 
-    experiment.log_dataset_hash(data)
+    experiment.log_dataset_hash(data_train)
 
     init = tf.global_variables_initializer()
     saver = tf.train.Saver()
@@ -91,14 +86,14 @@ if __name__ == '__main__':
     experiment = Experiment(project_name="sweep-langmuir-ml", workspace="physicistphil")
     hyperparams = {'n_inputs': 500,
                    'scale': 0.0,  # no regularization
-                   'learning_rate': 1e-3,
+                   'learning_rate': 2e-3,
                    'momentum': 0.9,
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,
-                   'batch_size': 256,
-                   'steps': 100,
+                   'batch_size': 512,
+                   'steps': 200,
                    'seed': 42}
-    experiment.add_tag("deep-7")
+    experiment.add_tag("deep-3")
     experiment.log_parameters(hyperparams)
     train(experiment, hyperparams)

@@ -35,3 +35,16 @@ def get_mirror_data(input_size):
     # This multiplier is only guaranteed to be correct for the mirror Langmuir sweeps that
     # were taken during the week of June 17th, 2018.
     return get_raw_mirror_data(input_size) / -11
+
+
+# Shuffle the data and split it into training, testing, and validation sets based on hyperparams
+def shuffle_split_data(data, hyperparams):
+    np.random.seed(hyperparams['seed'])
+    np.random.shuffle(data)
+    data_size = data.shape[0]
+    data_train = data[0:int(data_size * hyperparams['frac_train']), :]
+    data_test = data[int(data_size * hyperparams['frac_train']):
+                     int(data_size * (hyperparams['frac_test'] + hyperparams['frac_train'])), :]
+    data_valid = data[int(data_size * (hyperparams['frac_test'] + hyperparams['frac_train'])):, :]
+
+    return data_train, data_test, data_valid
