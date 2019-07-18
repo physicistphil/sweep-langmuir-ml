@@ -69,40 +69,39 @@ def train(experiment, hyperparams, debug=False):
         training_op, loss_total, X, training, output, hidden = build_graph.deep_3(hyperparams)
     else:
         training_op, loss_total, X, training, \
-            output, hidden, grad_tensor = build_graph.deep_3(hyperparams, debug)
-        gradients = []
+            output, hidden, grads = build_graph.deep_3(hyperparams, debug)
+        for grad, var in grads:
+            tf.summary.histogram("gradients/" + var.name, grad)
+            tf.summary.histogram("variables/" + var.name, var)
 
     init = tf.global_variables_initializer()
     saver = tf.train.Saver()
-
     # for batch normalization updates
     extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
+
+    # ---------------------- Begin training ---------------------- #
     with tf.Session(config=config) as sess:
         init.run()
         experiment.set_model_graph(sess.graph)
+        summaries_op = tf.summary.merge_all()
+        summary_writer = tf.summary.FileWriter("summaries/sum-" + now)
 
         for epoch in range(hyperparams['steps']):
-            if debug is True:
-                gradients.append([])
             for i in range(data_train.shape[0] // hyperparams['batch_size']):
                 X_batch = data_train[i * hyperparams['batch_size']:
                                      (i + 1) * hyperparams['batch_size']]
-                if debug is False:
-                    sess.run([training_op, extra_update_ops],
-                             feed_dict={X: X_batch, training: True})
-                else:
-                    gradients[epoch].append(sess.run([training_op, extra_update_ops, grad_tensor],
-                                                     feed_dict={X: X_batch, training: True})[2])
-            X_batch = data_train[(i + 1) * hyperparams['batch_size']:]
-            if debug is False:
                 sess.run([training_op, extra_update_ops],
                          feed_dict={X: X_batch, training: True})
-            else:
-                gradients[epoch].append(sess.run([training_op, extra_update_ops, grad_tensor],
-                                                 feed_dict={X: X_batch, training: True})[2])
+                if i == 0 and debug is True:
+                    summary = sess.run(summaries_op,
+                                       feed_dict={X: data_train, training: True})
+                    summary_writer.add_summary(summary, epoch)
+                    # maybe do over just a batch?
+            X_batch = data_train[(i + 1) * hyperparams['batch_size']:]
+            sess.run([training_op, extra_update_ops],
+                     feed_dict={X: X_batch, training: True})
 
             print("[" + "=" * int(25.0 * (epoch % 10) / 10.0) +
                   " " * int(np.ceil(25.0 * (1.0 - (epoch % 10) / 10.0))) +
@@ -111,6 +110,7 @@ def train(experiment, hyperparams, debug=False):
 
             if epoch % 10 == 0:
                 print("[" + "=" * 25 + "]")
+
                 loss_train = loss_total.eval(feed_dict={X: data_train}) / data_train.shape[0]
                 loss_test = loss_total.eval(feed_dict={X: data_test}) / data_test.shape[0]
                 with experiment.train():
@@ -123,11 +123,9 @@ def train(experiment, hyperparams, debug=False):
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/autoencoder-{}.ckpt".format(now))
 
-        if debug is True:
-            np.savez('./gradients/grads-{}'.format(now), grads=np.array(gradients))
-
         print("[" + "=" * 25 + "]")
 
+        # ---------------------- Log results ---------------------- #
         experiment.set_step(epoch)
         loss_train = loss_total.eval(feed_dict={X: data_train}) / data_train.shape[0]
         loss_test = loss_total.eval(feed_dict={X: data_test}) / data_test.shape[0]
@@ -145,6 +143,9 @@ def train(experiment, hyperparams, debug=False):
         fig_worst, axes = plot_utils.plot_worst(sess, data_train, X, output, hyperparams)
         experiment.log_figure(figure_name="comparison", figure=fig_compare)
         experiment.log_figure(figure_name="worst examples", figure=fig_worst)
+        os.mkdir("plots/fig-{}".format(now))
+        fig_compare.savefig("plots/fig-{}/compare".format(now))
+        fig_worst.savefig("plots/fig-{}/worst".format(now))
 
         # log tensorflow graph and variables
         checkpoint_name = "./saved_models/autoencoder-{}-final.ckpt".format(now)
@@ -155,10 +156,10 @@ def train(experiment, hyperparams, debug=False):
 
 if __name__ == '__main__':
     experiment = Experiment(project_name="sweep-langmuir-ml", workspace="physicistphil",
-                            )
+                            disabled=True)
     hyperparams = {'n_inputs': 500,
                    'scale': 0.0,  # no regularization
-                   'learning_rate': 2e-3,
+                   'learning_rate': 5e-4,
                    'momentum': 0.9,
                    'frac_train': 0.6,
                    'frac_test': 0.2,

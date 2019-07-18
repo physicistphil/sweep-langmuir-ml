@@ -112,3 +112,7 @@ venv.bak/
 
 # tensorflow saved models
 autoencoder/saved_models/
+# plots
+autoencoder/plots/
+# summaries
+autoencoder/summaries/

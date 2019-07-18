@@ -36,7 +36,7 @@ def deep_7(hyperparams, debug=False):
         dec_b2 = tf.nn.elu(batch_norm(dec2))
         dec3 = dense_layer(dec_b2, size_l1, name="dec3")
         dec_b3 = tf.nn.elu(batch_norm(dec3))
-        output_layer = dense_layer(dec_b3, 500, name="output_layer")
+        output_layer = dense_layer(dec_b3, hyperparams['n_inputs'], name="output_layer")
         output_b = tf.nn.elu(batch_norm(output_layer))
         output = tf.identity(output_b, name="output")  # so we can access output tensor easily
 
@@ -48,14 +48,15 @@ def deep_7(hyperparams, debug=False):
     with tf.name_scope("train"):
         optimizer = tf.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                hyperparams['momentum'], use_nesterov=True)
+        training_op = optimizer.minimize(loss_total)
 
-        if debug is False:
-                training_op = optimizer.minimize(loss_total)
-                return training_op, loss_total, X, training, output, h_base_b
-        else:
-            grads = optimizer.compute_gradients(loss_total)
-            training_op = optimizer.apply_gradients(grads)
-            return training_op, loss_total, X, training, output, h_base_b, grads
+    if debug is False:
+        training_op = optimizer.minimize(loss_total)
+        return training_op, loss_total, X, training, output, h_base_b
+    else:
+        grads = optimizer.compute_gradients(loss_total)
+        training_op = optimizer.apply_gradients(grads)
+        return training_op, loss_total, X, training, output, h_base_b, grads
 
 
 def deep_3(hyperparams, debug=False):
@@ -82,7 +83,7 @@ def deep_3(hyperparams, debug=False):
         h_base_b = tf.nn.elu(batch_norm(h_base))
         dec1 = dense_layer(h_base_b, size_l1, name="dec1")
         dec_b1 = tf.nn.elu(batch_norm(dec1))
-        output_layer = dense_layer(dec_b1, 500, name="output_layer")
+        output_layer = dense_layer(dec_b1, hyperparams['n_inputs'], name="output_layer")
         output_b = tf.nn.elu(batch_norm(output_layer))
         output = tf.identity(output_b, name="output")
 
@@ -102,5 +103,3 @@ def deep_3(hyperparams, debug=False):
             grads = optimizer.compute_gradients(loss_total)
             training_op = optimizer.apply_gradients(grads)
             return training_op, loss_total, X, training, output, h_base_b, grads
-
-# go with getting the tensors by name instead as seen in the comparison.ipynb notebook
