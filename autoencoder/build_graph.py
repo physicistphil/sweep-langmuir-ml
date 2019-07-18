@@ -2,7 +2,7 @@ import tensorflow as tf
 from functools import partial
 
 
-def deep_7(hyperparams):
+def deep_7(hyperparams, debug=False):
     with tf.name_scope("data"):
         X = tf.placeholder(tf.float32, [None, hyperparams['n_inputs']], name="X")
         # for not running batch normalization at inference time
@@ -48,12 +48,17 @@ def deep_7(hyperparams):
     with tf.name_scope("train"):
         optimizer = tf.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                hyperparams['momentum'], use_nesterov=True)
-        training_op = optimizer.minimize(loss_total)
 
-    return training_op, loss_total, X, training, output, h_base_b
+        if debug is False:
+                training_op = optimizer.minimize(loss_total)
+                return training_op, loss_total, X, training, output, h_base_b
+        else:
+            grads = optimizer.compute_gradients(loss_total)
+            training_op = optimizer.apply_gradients(grads)
+            return training_op, loss_total, X, training, output, h_base_b, grads
 
 
-def deep_3(hyperparams):
+def deep_3(hyperparams, debug=False):
     with tf.name_scope("data"):
         X = tf.placeholder(tf.float32, [None, hyperparams['n_inputs']], name="X")
         # for not running batch normalization at inference time
@@ -89,6 +94,13 @@ def deep_3(hyperparams):
     with tf.name_scope("train"):
         optimizer = tf.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                hyperparams['momentum'], use_nesterov=True)
-        training_op = optimizer.minimize(loss_total)
 
-    return training_op, loss_total, X, training, output, h_base_b
+        if debug is False:
+            training_op = optimizer.minimize(loss_total)
+            return training_op, loss_total, X, training, output, h_base_b
+        else:
+            grads = optimizer.compute_gradients(loss_total)
+            training_op = optimizer.apply_gradients(grads)
+            return training_op, loss_total, X, training, output, h_base_b, grads
+
+# go with getting the tensors by name instead as seen in the comparison.ipynb notebook
