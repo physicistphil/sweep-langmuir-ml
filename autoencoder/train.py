@@ -14,9 +14,10 @@ sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/data_processor')
 import preprocess
 sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/simulator')
 import generate
+sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/utilities')
+import plot_utils
 
 # From the autoencoder directory
-import plot_utils
 import build_graph
 
 
@@ -57,7 +58,6 @@ def gather_mixed_data(experiment, hyperparams):
     pass
 
 
-# TODO: split train data preparation so that we can also autoencode on synthetic traces
 def train(experiment, hyperparams, debug=False):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
@@ -139,8 +139,10 @@ def train(experiment, hyperparams, debug=False):
         saver.save(sess, "./saved_models/autoencoder-{}-final.ckpt".format(now))
 
         # make plots comparing fit to
-        fig_compare, axes = plot_utils.plot_comparison(sess, data_test, X, output, hyperparams)
-        fig_worst, axes = plot_utils.plot_worst(sess, data_train, X, output, hyperparams)
+        fig_compare, axes = plot_utils.autoencoder_plot_comparison(sess, data_test, X,
+                                                                   output, hyperparams)
+        fig_worst, axes = plot_utils.autoencoder_plot_worst(sess, data_train, X,
+                                                            output, hyperparams)
         experiment.log_figure(figure_name="comparison", figure=fig_compare)
         experiment.log_figure(figure_name="worst examples", figure=fig_worst)
         os.mkdir("plots/fig-{}".format(now))
@@ -156,16 +158,16 @@ def train(experiment, hyperparams, debug=False):
 
 if __name__ == '__main__':
     experiment = Experiment(project_name="sweep-langmuir-ml", workspace="physicistphil",
-                            disabled=True)
+                            )
     hyperparams = {'n_inputs': 500,
-                   'scale': 0.0,  # no regularization
-                   'learning_rate': 5e-4,
+                   'scale': 0.5,
+                   'learning_rate': 5e-5,
                    'momentum': 0.9,
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,
                    'batch_size': 512,
-                   'steps': 200,
+                   'steps': 1000,
                    'seed': 42}
     experiment.add_tag("deep-3")
     experiment.add_tag("synthetic")

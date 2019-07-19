@@ -93,12 +93,13 @@ def deep_3(hyperparams, debug=False):
         loss_total = tf.add_n([loss_base] + loss_reg, name="loss_total")
 
     with tf.name_scope("train"):
+        # optimizer = tf.train.AdamOptimizer(hyperparams['learning_rate'])
         optimizer = tf.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                hyperparams['momentum'], use_nesterov=True)
 
         if debug is False:
-            training_op = optimizer.minimize(loss_total)
-            return training_op, loss_total, X, training, output, h_base_b
+                training_op = optimizer.minimize(loss_total)
+                return training_op, loss_total, X, training, output, h_base_b
         else:
             grads = optimizer.compute_gradients(loss_total)
             training_op = optimizer.apply_gradients(grads)
