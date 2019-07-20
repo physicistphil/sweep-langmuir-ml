@@ -111,8 +111,8 @@ venv.bak/
 *.sublime-workspace
 
 # tensorflow saved models
-autoencoder/saved_models/
+*/saved_models/
 # plots
-autoencoder/plots/
+*/plots/
 # summaries
-autoencoder/summaries/
+*/summaries/
