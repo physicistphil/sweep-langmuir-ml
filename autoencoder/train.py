@@ -38,7 +38,8 @@ def gather_synthetic_data(experiment, hyperparams):
     print("Generating traces...", end=" ")
     ne = np.linspace(1e17, 1e18, 20)  # Densities in m^-3 (typcial of LAPD)
     Vp = np.linspace(20, 60, 20)  # Plasma potential in V (typcial of LAPD? idk)
-    Te = np.linspace(0.5, 5, 40)  # Electron temperature in eV (typical of LAPD)
+    e = 1.602e-19  # elemntary charge
+    Te = np.linspace(0.5, 5, 40) * e  # Electron temperature in J (typical of LAPD)
     vsweep = np.linspace(-30, 70, hyperparams['n_inputs'])  # Sweep voltage in V
     S = 2e-6  # Probe area in m^2
 

@@ -16,7 +16,7 @@ def generate_basic_trace(n, Vp, Te, vsweep, S=2e-6):
     me = 9.109e-31
     e = 1.602e-19
 
-    Te = Te * e  # convert to Joules
+    # Te = Te * e  # convert to Joules
 
     # make grid from inputs
     n_grid, Vp_grid, Te_grid, vsweep_grid = np.meshgrid(n, Vp, Te, vsweep, indexing='ij')
