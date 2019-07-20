@@ -5,8 +5,11 @@ import tensorflow as tf
 import numpy as np
 from datetime import datetime
 
+# Modify log levels to keep console clean.
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import tensorflow.python.util.deprecation as deprecation
+deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 # Custom tools from other directories
 import sys
