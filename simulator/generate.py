@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def generate_basic_trace(n, Vp, Te, vsweep, S=2e-6):
+def generate_basic_trace(n, Vp, Te, vsweep, S=2e-6, return_grids=False):
     # Only generating based on density, floating potential, and temperature.
     # Isat and other effects are not considered.
     # Inputs are numpy arrays
@@ -29,7 +29,10 @@ def generate_basic_trace(n, Vp, Te, vsweep, S=2e-6):
     # cap the current to I_esat
     current[condition] = I_esat[condition] * np.sqrt(Te_grid)[condition]
 
-    return current
+    if not return_grids:
+        return current
+    else:
+        return n_grid, Vp_grid, Te_grid, vsweep_grid, current
 
 
 # TODO: this is broken. Need to account for Ti in the meshgrid.
