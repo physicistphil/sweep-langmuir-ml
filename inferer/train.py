@@ -23,6 +23,8 @@ import plot_utils
 # From the autoencoder directory
 import build_graph
 
+# weights and biases -- ML experiment tracker
+import wandb
 
 # Get data from real experiments (so far just from the mirror dataset).
 """
@@ -38,7 +40,8 @@ import build_graph
 
 
 # Generate synthetic sweeps and make conventional train / test / validation sets.
-def gather_synthetic_data(experiment, hyperparams):
+# def gather_synthetic_data(experiment, hyperparams):
+def gather_synthetic_data(hyperparams):
     print("Generating traces...", end=" ")
     ne = np.linspace(1e17, 1e18, 20)  # Densities in m^-3 (typcial of LAPD)
     Vp = np.linspace(20, 60, 20)  # Plasma potential in V (typcial of LAPD? idk)
@@ -57,7 +60,7 @@ def gather_synthetic_data(experiment, hyperparams):
 
     data = np.reshape(data, (-1, n_inputs))
     data_train, data_test, data_valid = preprocess.shuffle_split_data(data, hyperparams)
-    experiment.log_dataset_hash([data_train, y_train])
+    # experiment.log_dataset_hash([data_train, y_train])
     print("Done.")
 
     # TODO: return vsweep as well to allow for training on different voltage sweeps
@@ -71,13 +74,15 @@ def gather_mixed_data(experiment, hyperparams):
     pass
 
 
-def train(experiment, hyperparams, debug=False):
+# def train(experiment, hyperparams, debug=False):
+def train(hyperparams, debug=False):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
     # choose which data to train on
     # data_train, data_test, data_valid = gather_real_data(experiment, hyperparams)
     data_train, data_test, data_valid, y_train, y_test, y_valid \
-        = gather_synthetic_data(experiment, hyperparams)
+        = gather_synthetic_data(hyperparams)
+        # = gather_synthetic_data(experiment, hyperparams)
 
     if not debug:
         training_op, X, y, training, output, loss_total \
@@ -99,7 +104,7 @@ def train(experiment, hyperparams, debug=False):
     # ---------------------- Begin training ---------------------- #
     with tf.Session(config=config) as sess:
         init.run()
-        experiment.set_model_graph(sess.graph)
+        # experiment.set_model_graph(sess.graph)
         summaries_op = tf.summary.merge_all()
         summary_writer = tf.summary.FileWriter("summaries/sum-" + now)
 
@@ -108,7 +113,7 @@ def train(experiment, hyperparams, debug=False):
                 X_batch = data_train[i * hyperparams['batch_size']:
                                      (i + 1) * hyperparams['batch_size']]
                 y_batch = y_train[i * hyperparams['batch_size']:
-                                     (i + 1) * hyperparams['batch_size']]
+                                  (i + 1) * hyperparams['batch_size']]
                 sess.run([training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
                 if i == 0 and epoch % 10 == 0 and debug:
@@ -133,38 +138,40 @@ def train(experiment, hyperparams, debug=False):
                               data_test.shape[0])
                 loss_test = (loss_total.eval(feed_dict={X: data_test, y: y_test}) /
                              data_test.shape[0])
-                quants = output.eval(feed_dict={X: data_test, y: y_test})
-                with experiment.train():
-                    experiment.log_metric('Loss', loss_train, step=epoch)
-                with experiment.test():
-                    experiment.log_metric('Loss', loss_test, step=epoch)
+                wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
+                # quants = output.eval(feed_dict={X: data_test, y: y_test})
+                # with experiment.train():
+                    # experiment.log_metric('Loss', loss_train, step=epoch)
+                # with experiment.test():
+                    # experiment.log_metric('Loss', loss_test, step=epoch)
                 print("Epoch {:5}\tWall: {} \tTraining loss: {:.4e}\tTesting loss: {:.4e}"
                       .format(epoch, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
                               loss_train, loss_test))
-                print("n: {:.4e}\tVp: {:.4e}\tTe: {:.4e}".format(quants[0, 0], quants[0, 1], quants[0, 2]))
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/autoencoder-{}.ckpt".format(now))
 
         print("[" + "=" * 25 + "]")
 
         # ---------------------- Log results ---------------------- #
-        experiment.set_step(epoch)
+        # experiment.set_step(epoch)
         loss_train = loss_total.eval(feed_dict={X: data_train, y: y_train}) / data_train.shape[0]
         loss_test = loss_total.eval(feed_dict={X: data_test, y: y_test}) / data_test.shape[0]
         print("Epoch {:5}\tWall: {} \tTraining loss: {:.4e}\tTesting loss: {:.4e}"
               .format(epoch, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
                       loss_train, loss_test))
-        with experiment.train():
-            experiment.log_metric('Loss', loss_train)
-        with experiment.test():
-            experiment.log_metric('Loss', loss_test)
+        wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
+        # with experiment.train():
+            # experiment.log_metric('Loss', loss_train)
+        # with experiment.test():
+            # experiment.log_metric('Loss', loss_test)
         saver.save(sess, "./saved_models/autoencoder-{}-final.ckpt".format(now))
 
         # make plots comparing fit to
         fig_compare, axes = plot_utils.inferer_plot_comparison(sess, data_test, y_test, X, y,
                                                                output, hyperparams)
         # fig_worst, axes = plot_utils.plot_worst(sess, data_train, X, output, hyperparams)
-        experiment.log_figure(figure_name="comparison", figure=fig_compare)
+        wandb.log({"comaprison_plot": fig_compare})
+        # experiment.log_figure(figure_name="comparison", figure=fig_compare)
         # experiment.log_figure(figure_name="worst examples", figure=fig_worst)
         os.mkdir("plots/fig-{}".format(now))
         fig_compare.savefig("plots/fig-{}/compare".format(now))
@@ -172,25 +179,31 @@ def train(experiment, hyperparams, debug=False):
 
         # log tensorflow graph and variables
         checkpoint_name = "./saved_models/autoencoder-{}-final.ckpt".format(now)
-        experiment.log_asset(checkpoint_name + ".index")
-        experiment.log_asset(checkpoint_name + ".meta")
-        experiment.log_asset(checkpoint_name + ".data-00000-of-00001")
+        wandb.save(checkpoint_name + ".index")
+        wandb.save(checkpoint_name + ".meta")
+        wandb.save(checkpoint_name + ".data-00000-of-00001")
+        # experiment.log_asset(checkpoint_name + ".index")
+        # experiment.log_asset(checkpoint_name + ".meta")
+        # experiment.log_asset(checkpoint_name + ".data-00000-of-00001")
 
 
 if __name__ == '__main__':
-    experiment = Experiment(project_name="sweep-langmuir-ml", workspace="physicistphil",
-                            disabled=True)
+    # experiment = Experiment(project_name="sweep-langmuir-ml", workspace="physicistphil",
+    #                         )
     hyperparams = {'n_inputs': 500,
                    'scale': 0.5,
-                   'learning_rate': 1e-5,
-                   'momentum': 0.99,
+                   'learning_rate': 1e-4,
+                   'momentum': 0.9,
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,
                    'batch_size': 512,
                    'steps': 200,
                    'seed': 42}
-    experiment.add_tag("deep-3")
-    experiment.add_tag("synthetic")
-    experiment.log_parameters(hyperparams)
-    train(experiment, hyperparams, debug=True)
+    # experiment.add_tag("small-infer")
+    # experiment.add_tag("synthetic")
+    # experiment.log_parameters(hyperparams)
+    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
+    # train(experiment, hyperparams, debug=True) 
+    train(hyperparams, debug=True)
+
