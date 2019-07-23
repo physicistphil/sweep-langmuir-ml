@@ -7,8 +7,6 @@ from datetime import datetime
 # Modify log levels to keep console clean.
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow.python.util.deprecation as deprecation
-deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 # Custom tools from other directories
 import sys
@@ -87,21 +85,21 @@ def train(hyperparams, debug=False):
         training_op, X, y, training, output, loss_total, grads \
             = build_graph.make_small_nn(hyperparams, size_output=3, debug=debug)
         for grad, var in grads:
-            tf.summary.histogram("gradients/" + var.name, grad)
-            tf.summary.histogram("variables/" + var.name, var)
+            tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
+            tf.compat.v1.summary.histogram("variables/" + var.name, var)
 
-    init = tf.global_variables_initializer()
-    saver = tf.train.Saver()
+    init = tf.compat.v1.global_variables_initializer()
+    saver = tf.compat.v1.train.Saver()
     # for batch normalization updates
-    extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    config = tf.ConfigProto()
+    extra_update_ops = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.UPDATE_OPS)
+    config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
 
     # ---------------------- Begin training ---------------------- #
-    with tf.Session(config=config) as sess:
+    with tf.compat.v1.Session(config=config) as sess:
         init.run()
-        summaries_op = tf.summary.merge_all()
-        summary_writer = tf.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
+        summaries_op = tf.compat.v1.summary.merge_all()
+        summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
 
         for epoch in range(hyperparams['steps']):
             for i in range(data_train.shape[0] // hyperparams['batch_size']):

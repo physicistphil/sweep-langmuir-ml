@@ -4,9 +4,9 @@ from functools import partial
 
 def make_small_nn(hyperparams, size_output=3, debug=False):
     with tf.name_scope("data"):
-        X = tf.placeholder(tf.float32, [None, hyperparams['n_inputs']], name="X")
+        X = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs']], name="X")
         y = tf.placeholder(tf.float32, [None, size_output], name="y")
-        training = tf.placeholder_with_default(False, shape=(), name="training")
+        training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
         # normalize desired outputs
         mean = tf.reduce_mean(y, axis=0)
         diff = tf.reduce_max(y, axis=0) - tf.reduce_min(y, axis=0)
@@ -21,6 +21,7 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
 
     size_l1 = 100
     size_l2 = 20
+    # size_ouput = 3 (default)
 
     with tf.name_scope("nn"):
         layer1 = dense_layer(X, size_l1, name="layer1")
@@ -34,12 +35,12 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
 
     with tf.name_scope("loss"):
         loss_base = tf.nn.l2_loss(output - y_normalized, name="loss_base")
-        loss_reg = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        loss_reg = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.REGULARIZATION_LOSSES)
         loss_total = tf.add_n([loss_base] + loss_reg, name="loss_total")
 
     with tf.name_scope("train"):
-        optimizer = tf.train.MomentumOptimizer(hyperparams['learning_rate'],
-                                               hyperparams['momentum'], use_nesterov=True)
+        optimizer = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
+                                                         hyperparams['momentum'], use_nesterov=True)
 
         if not debug:
             training_op = optimizer.minimize(loss_total)
