@@ -1,6 +1,5 @@
 # This file should be run from the folder its in. E.g.: python train.py
 
-from comet_ml import Experiment
 import tensorflow as tf
 import numpy as np
 from datetime import datetime
@@ -40,7 +39,7 @@ import wandb
 
 
 # Generate synthetic sweeps and make conventional train / test / validation sets.
-# def gather_synthetic_data(experiment, hyperparams):
+# Order is: ne (electron density), Vp (plasma potential), and Te (electron temperature)
 def gather_synthetic_data(hyperparams):
     print("Generating traces...", end=" ")
     ne = np.linspace(1e17, 1e18, 20)  # Densities in m^-3 (typcial of LAPD)
@@ -74,15 +73,12 @@ def gather_mixed_data(experiment, hyperparams):
     pass
 
 
-# def train(experiment, hyperparams, debug=False):
 def train(hyperparams, debug=False):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
     # choose which data to train on
-    # data_train, data_test, data_valid = gather_real_data(experiment, hyperparams)
     data_train, data_test, data_valid, y_train, y_test, y_valid \
         = gather_synthetic_data(hyperparams)
-        # = gather_synthetic_data(experiment, hyperparams)
 
     if not debug:
         training_op, X, y, training, output, loss_total \
@@ -104,9 +100,8 @@ def train(hyperparams, debug=False):
     # ---------------------- Begin training ---------------------- #
     with tf.Session(config=config) as sess:
         init.run()
-        # experiment.set_model_graph(sess.graph)
         summaries_op = tf.summary.merge_all()
-        summary_writer = tf.summary.FileWriter("summaries/sum-" + now)
+        summary_writer = tf.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
 
         for epoch in range(hyperparams['steps']):
             for i in range(data_train.shape[0] // hyperparams['batch_size']):
@@ -132,47 +127,44 @@ def train(hyperparams, debug=False):
             print("\r", end="")
 
             if epoch % 10 == 0:
-                print("[" + "=" * 25 + "]")
+                print("[" + "=" * 25 + "]", end="\t")
 
                 loss_train = (loss_total.eval(feed_dict={X: data_train, y: y_train}) /
                               data_test.shape[0])
                 loss_test = (loss_total.eval(feed_dict={X: data_test, y: y_test}) /
                              data_test.shape[0])
                 wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
-                # quants = output.eval(feed_dict={X: data_test, y: y_test})
-                # with experiment.train():
-                    # experiment.log_metric('Loss', loss_train, step=epoch)
-                # with experiment.test():
-                    # experiment.log_metric('Loss', loss_test, step=epoch)
-                print("Epoch {:5}\tWall: {} \tTraining loss: {:.4e}\tTesting loss: {:.4e}"
-                      .format(epoch, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
+                      .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
                               loss_train, loss_test))
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/autoencoder-{}.ckpt".format(now))
 
-        print("[" + "=" * 25 + "]")
+        print("[" + "=" * 25 + "]", end="\t")
 
         # ---------------------- Log results ---------------------- #
-        # experiment.set_step(epoch)
+        # calculate loss
         loss_train = loss_total.eval(feed_dict={X: data_train, y: y_train}) / data_train.shape[0]
         loss_test = loss_total.eval(feed_dict={X: data_test, y: y_test}) / data_test.shape[0]
-        print("Epoch {:5}\tWall: {} \tTraining loss: {:.4e}\tTesting loss: {:.4e}"
-              .format(epoch, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
+              .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
                       loss_train, loss_test))
         wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
-        # with experiment.train():
-            # experiment.log_metric('Loss', loss_train)
-        # with experiment.test():
-            # experiment.log_metric('Loss', loss_test)
         saver.save(sess, "./saved_models/autoencoder-{}-final.ckpt".format(now))
 
-        # make plots comparing fit to
+        # calculate RMS percent error of quantities. quants output order is: ne, Vp, Te
+        quants = output.eval(feed_dict={X: data_test, y: y_test})
+        per_ne = np.std((quants[:, 0] - y_test[:, 0]) / y_test[:, 0] * 100 - 100)
+        per_Vp = np.std((quants[:, 1] - y_test[:, 1]) / y_test[:, 1] * 100 - 100)
+        per_Te = np.std((quants[:, 2] - y_test[:, 2]) / y_test[:, 2] * 100 - 100)
+        print("RMS: \tne: {:03.1f}%\tVp: {:03.1f}%\tTe: {:03.1f}%\t".format(per_ne, per_Vp, per_Te))
+        wandb.log({'RMS_pct_ne': per_ne, 'RMS_pct_Vp': per_Vp, 'RMS_pct_Te': per_Te}, step=epoch)
+
+        # make plots comparing learned parameters to the actual ones
         fig_compare, axes = plot_utils.inferer_plot_comparison(sess, data_test, y_test, X, y,
                                                                output, hyperparams)
         # fig_worst, axes = plot_utils.plot_worst(sess, data_train, X, output, hyperparams)
-        wandb.log({"comaprison_plot": fig_compare})
-        # experiment.log_figure(figure_name="comparison", figure=fig_compare)
-        # experiment.log_figure(figure_name="worst examples", figure=fig_worst)
+        wandb.log({"comaprison_plot": fig_compare}, step=epoch)
         os.mkdir("plots/fig-{}".format(now))
         fig_compare.savefig("plots/fig-{}/compare".format(now))
         # fig_worst.savefig("plots/fig-{}/worst".format(now))
@@ -182,14 +174,9 @@ def train(hyperparams, debug=False):
         wandb.save(checkpoint_name + ".index")
         wandb.save(checkpoint_name + ".meta")
         wandb.save(checkpoint_name + ".data-00000-of-00001")
-        # experiment.log_asset(checkpoint_name + ".index")
-        # experiment.log_asset(checkpoint_name + ".meta")
-        # experiment.log_asset(checkpoint_name + ".data-00000-of-00001")
 
 
 if __name__ == '__main__':
-    # experiment = Experiment(project_name="sweep-langmuir-ml", workspace="physicistphil",
-    #                         )
     hyperparams = {'n_inputs': 500,
                    'scale': 0.5,
                    'learning_rate': 1e-4,
@@ -200,10 +187,5 @@ if __name__ == '__main__':
                    'batch_size': 512,
                    'steps': 200,
                    'seed': 42}
-    # experiment.add_tag("small-infer")
-    # experiment.add_tag("synthetic")
-    # experiment.log_parameters(hyperparams)
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
-    # train(experiment, hyperparams, debug=True) 
     train(hyperparams, debug=True)
-
