@@ -52,6 +52,8 @@ def autoencoder_plot_worst(sess, data_train, X, output, hyperparams):
     return fig, axes
 
 
+# Compare plots of the actual curve vs the one inferred from the model.
+# These plots are not scaled to the correct units of Te, VP, or ne. For diagnostic use only.
 def inferer_plot_comparison(sess, data_test, y_test, X, y, output, hyperparams):
     output_test = output.eval(session=sess, feed_dict={X: data_test, y: y_test})
     # generated_trace = output_test
@@ -60,7 +62,7 @@ def inferer_plot_comparison(sess, data_test, y_test, X, y, output, hyperparams):
     fig.suptitle('Comparison of test set trace and derived trace')
     np.random.seed(hyperparams['seed'])
     randidx = np.random.randint(data_test.shape[0], size=(3, 4))
-    # TODO: remove this hardcoded variable!
+    # TODO: remove this hardcoded variable and use voltage sweep for inference
     vsweep = np.linspace(-30, 70, 500)
 
     for x, y in np.ndindex((3, 4)):

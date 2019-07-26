@@ -38,7 +38,7 @@ import wandb
 
 # Generate synthetic sweeps and make conventional train / test / validation sets.
 # Order is: ne (electron density), Vp (plasma potential), and Te (electron temperature)
-def gather_synthetic_data(hyperparams):
+def gather_synthetic_scaled_data(hyperparams):
     print("Generating traces...", end=" ")
     ne = np.linspace(1e17, 1e18, 20)  # Densities in m^-3 (typcial of LAPD)
     Vp = np.linspace(20, 60, 20)  # Plasma potential in V (typcial of LAPD? idk)
@@ -53,15 +53,23 @@ def gather_synthetic_data(hyperparams):
     n_inputs = hyperparams['n_inputs']
     y = np.stack((ne_grid.reshape((-1, n_inputs)), Vp_grid.reshape((-1, n_inputs)),
                   Te_grid.reshape(-1, n_inputs)))[:, :, 0].transpose()
-    y_train, y_test, y_valid = preprocess.shuffle_split_data(y, hyperparams)
+    mean = np.mean(y, axis=0)
+    stddev = np.std(y, axis=0)
+    y = (y - mean) / stddev
 
+    y_train, y_test, y_valid = preprocess.shuffle_split_data(y, hyperparams)
     data = np.reshape(data, (-1, n_inputs))
+
+    # Add random displacements to force vertical translation invariance in our inference.
+    # This is to avoid digitizer offsets from messing with our estimates.
+    # 0.1 Amp (~1 V) offset is typical.
+    np.random.seed(hyperparams['seed'])
+    data += np.random.uniform(-0.1, 0.1, size=(data.shape[0], 1))
     data_train, data_test, data_valid = preprocess.shuffle_split_data(data, hyperparams)
-    # experiment.log_dataset_hash([data_train, y_train])
     print("Done.")
 
     # TODO: return vsweep as well to allow for training on different voltage sweeps
-    return data_train, data_test, data_valid, y_train, y_test, y_valid
+    return data_train, data_test, data_valid, y_train, y_test, y_valid, mean, stddev
 
 
 # Mix the generated synthetic sweeps and real data and return the combined set.
@@ -75,8 +83,8 @@ def train(hyperparams, debug=False):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
     # choose which data to train on
-    data_train, data_test, data_valid, y_train, y_test, y_valid \
-        = gather_synthetic_data(hyperparams)
+    data_train, data_test, data_valid, y_train, y_test, y_valid, y_mean, y_stddev \
+        = gather_synthetic_scaled_data(hyperparams)
 
     if not debug:
         training_op, X, y, training, output, loss_total \
@@ -152,11 +160,13 @@ def train(hyperparams, debug=False):
 
         # calculate RMS percent error of quantities. quants output order is: ne, Vp, Te
         quants = output.eval(feed_dict={X: data_test, y: y_test})
-        per_ne = np.std((quants[:, 0] - y_test[:, 0]) / y_test[:, 0] * 100 - 100)
-        per_Vp = np.std((quants[:, 1] - y_test[:, 1]) / y_test[:, 1] * 100 - 100)
-        per_Te = np.std((quants[:, 2] - y_test[:, 2]) / y_test[:, 2] * 100 - 100)
-        print("RMS: \tne: {:03.1f}%\tVp: {:03.1f}%\tTe: {:03.1f}%\t".format(per_ne, per_Vp, per_Te))
-        wandb.log({'RMS_pct_ne': per_ne, 'RMS_pct_Vp': per_Vp, 'RMS_pct_Te': per_Te}, step=epoch)
+        per_ne = ((quants[:, 0] - y_test[:, 0]) / y_test[:, 0] * 100 - 100)
+        per_Vp = ((quants[:, 1] - y_test[:, 1]) / y_test[:, 1] * 100 - 100)
+        per_Te = ((quants[:, 2] - y_test[:, 2]) / y_test[:, 2] * 100 - 100)
+        print("RMS: \tne: {:03.1f}%\tVp: {:03.1f}%\tTe: {:03.1f}%\t"
+              .format(np.std(per_ne), np.std(per_Vp), np.std(per_Te)))
+        wandb.log({'RMS_pct_ne': np.std(per_ne), 'RMS_pct_Vp': np.std(per_Vp),
+                   'RMS_pct_Te': np.std(per_Te)}, step=epoch)
 
         # make plots comparing learned parameters to the actual ones
         fig_compare, axes = plot_utils.inferer_plot_comparison(sess, data_test, y_test, X, y,
