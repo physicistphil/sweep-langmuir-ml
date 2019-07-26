@@ -122,10 +122,11 @@ def train(hyperparams, debug=False):
                                        feed_dict={X: data_train, y: y_train, training: True})
                     summary_writer.add_summary(summary, epoch)
                     # maybe do over just a batch?
-            X_batch = data_train[(i + 1) * hyperparams['batch_size']:]
-            y_batch = y_train[(i + 1) * hyperparams['batch_size']:]
-            sess.run([training_op, extra_update_ops],
-                     feed_dict={X: X_batch, y: y_batch, training: True})
+            if (data_train.shape[0] % hyperparams['batch_size']) != 0:
+                X_batch = data_train[(i + 1) * hyperparams['batch_size']:]
+                y_batch = y_train[(i + 1) * hyperparams['batch_size']:]
+                sess.run([training_op, extra_update_ops],
+                         feed_dict={X: X_batch, y: y_batch, training: True})
 
             print("[" + "=" * int(25.0 * (epoch % 10) / 10.0) +
                   " " * int(np.ceil(25.0 * (1.0 - (epoch % 10) / 10.0))) +
@@ -136,7 +137,7 @@ def train(hyperparams, debug=False):
                 print("[" + "=" * 25 + "]", end="\t")
 
                 loss_train = (loss_total.eval(feed_dict={X: data_train, y: y_train}) /
-                              data_test.shape[0])
+                              data_train.shape[0])
                 loss_test = (loss_total.eval(feed_dict={X: data_test, y: y_test}) /
                              data_test.shape[0])
                 wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
@@ -178,7 +179,7 @@ def train(hyperparams, debug=False):
         # fig_worst.savefig("plots/fig-{}/worst".format(now))
 
         # log tensorflow graph and variables
-        checkpoint_name = "./saved_models/autoencoder-{}-final.ckpt".format(now)
+        checkpoint_name = "./saved_models/model-{}-final.ckpt".format(now)
         wandb.save(checkpoint_name + ".index")
         wandb.save(checkpoint_name + ".meta")
         wandb.save(checkpoint_name + ".data-00000-of-00001")
@@ -187,13 +188,13 @@ def train(hyperparams, debug=False):
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 500,
                    'scale': 0.5,
-                   'learning_rate': 1e-4,
-                   'momentum': 0.9,
+                   'learning_rate': 1e-6,
+                   'momentum': 0.99,
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,
                    'batch_size': 512,
-                   'steps': 200,
+                   'steps': 500,
                    'seed': 42}
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
     train(hyperparams, debug=True)
