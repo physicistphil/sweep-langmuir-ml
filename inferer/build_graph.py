@@ -5,7 +5,7 @@ from functools import partial
 def make_small_nn(hyperparams, size_output=3, debug=False):
     with tf.name_scope("data"):
         X = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs']], name="X")
-        y = tf.placeholder(tf.float32, [None, size_output], name="y")
+        y = tf.compat.v1.placeholder(tf.float32, [None, size_output], name="y")
         training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
         # normalize desired outputs
         mean = tf.reduce_mean(y, axis=0)
