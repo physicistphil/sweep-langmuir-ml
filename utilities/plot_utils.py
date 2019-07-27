@@ -53,11 +53,9 @@ def autoencoder_plot_worst(sess, data_train, X, output, hyperparams):
 
 
 # Compare plots of the actual curve vs the one inferred from the model.
-# These plots are not scaled to the correct units of Te, VP, or ne. For diagnostic use only.
-def inferer_plot_comparison(sess, data_test, y_test, X, y, output, hyperparams):
-    output_test = output.eval(session=sess, feed_dict={X: data_test, y: y_test})
+def inferer_plot_comparison(sess, data_test, X, output, mean, diff, hyperparams):
+    output_test = output.eval(session=sess, feed_dict={X: data_test}) * diff + mean
     # generated_trace = output_test
-
     fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
     fig.suptitle('Comparison of test set trace and derived trace')
     np.random.seed(hyperparams['seed'])
@@ -69,11 +67,25 @@ def inferer_plot_comparison(sess, data_test, y_test, X, y, output, hyperparams):
         ne = np.array([output_test[randidx[x, y], 0]])
         Vp = np.array([output_test[randidx[x, y], 1]])
         Te = np.array([output_test[randidx[x, y], 2]])
-        axes[x, y].plot(data_test[randidx[x, y]], label="Input")
+        # We subtract min to center the sweep at 0 again.
+        axes[x, y].plot(data_test[randidx[x, y]] - np.min(data_test[randidx[x, y]]), label="Input")
         axes[x, y].plot(generate.generate_basic_trace(ne, Vp, Te, vsweep)[0, 0, 0],
                         label="Derived")
         axes[x, y].set_title("Index {}".format(randidx[x, y]))
     axes[0, 0].legend()
+
+    return fig, axes
+
+
+def inferer_plot_quant_hist(sess, data_test, X, output, hyperparams):
+    output_test = output.eval(session=sess, feed_dict={X: data_test})
+
+    n_bins = 20
+    fig, axes = plt.subplots(figsize=(6, 4))
+    axes.hist(output_test[:, 0], bins=n_bins, alpha=0.5, edgecolor="black", label="ne")
+    axes.hist(output_test[:, 1], bins=n_bins, alpha=0.5, edgecolor="black", label="Vp")
+    axes.hist(output_test[:, 2], bins=n_bins, alpha=0.5, edgecolor="black", label="Te")
+    axes.legend()
 
     return fig, axes
 
