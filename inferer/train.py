@@ -17,7 +17,7 @@ import generate
 sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/utilities')
 import plot_utils
 
-# From the autoencoder directory
+# From the inferer directory
 import build_graph
 
 # weights and biases -- ML experiment tracker
@@ -54,12 +54,11 @@ def gather_synthetic_scaled_data(hyperparams):
     y = np.stack((ne_grid.reshape((-1, n_inputs)), Vp_grid.reshape((-1, n_inputs)),
                   Te_grid.reshape(-1, n_inputs)))[:, :, 0].transpose()
     mean = np.mean(y, axis=0)
-    stddev = np.std(y, axis=0)
-    y = (y - mean) / stddev
-
+    diff = np.max(y, axis=0) - np.min(y, axis=0)
+    y = (y - mean) / diff
     y_train, y_test, y_valid = preprocess.shuffle_split_data(y, hyperparams)
+    
     data = np.reshape(data, (-1, n_inputs))
-
     # Add random displacements to force vertical translation invariance in our inference.
     # This is to avoid digitizer offsets from messing with our estimates.
     # 0.1 Amp (~1 V) offset is typical.
@@ -69,7 +68,7 @@ def gather_synthetic_scaled_data(hyperparams):
     print("Done.")
 
     # TODO: return vsweep as well to allow for training on different voltage sweeps
-    return data_train, data_test, data_valid, y_train, y_test, y_valid, mean, stddev
+    return data_train, data_test, data_valid, y_train, y_test, y_valid, mean, diff
 
 
 # Mix the generated synthetic sweeps and real data and return the combined set.
@@ -81,9 +80,11 @@ def gather_mixed_data(experiment, hyperparams):
 
 def train(hyperparams, debug=False):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    wandb.log({"now": now}, step=0)
+    os.mkdir("plots/fig-{}".format(now))
 
     # choose which data to train on
-    data_train, data_test, data_valid, y_train, y_test, y_valid, y_mean, y_stddev \
+    data_train, data_test, data_valid, y_train, y_test, y_valid, y_mean, y_diff \
         = gather_synthetic_scaled_data(hyperparams)
 
     if not debug:
@@ -108,6 +109,7 @@ def train(hyperparams, debug=False):
         init.run()
         summaries_op = tf.compat.v1.summary.merge_all()
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
+        best_loss = 1000
 
         for epoch in range(hyperparams['steps']):
             for i in range(data_train.shape[0] // hyperparams['batch_size']):
@@ -144,8 +146,13 @@ def train(hyperparams, debug=False):
                 print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
                               loss_train, loss_test))
+
+                if loss_test < best_loss:
+                    best_loss = loss_test
+                    saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
+
             if epoch % 100 == 0:
-                saver.save(sess, "./saved_models/autoencoder-{}.ckpt".format(now))
+                saver.save(sess, "./saved_models/model-{}.ckpt".format(now))
 
         print("[" + "=" * 25 + "]", end="\t")
 
@@ -157,44 +164,58 @@ def train(hyperparams, debug=False):
               .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
                       loss_train, loss_test))
         wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
-        saver.save(sess, "./saved_models/autoencoder-{}-final.ckpt".format(now))
+        saver.save(sess, "./saved_models/model-{}-final.ckpt".format(now))
 
-        # calculate RMS percent error of quantities. quants output order is: ne, Vp, Te
-        quants = output.eval(feed_dict={X: data_test, y: y_test})
-        per_ne = ((quants[:, 0] - y_test[:, 0]) / y_test[:, 0] * 100 - 100)
-        per_Vp = ((quants[:, 1] - y_test[:, 1]) / y_test[:, 1] * 100 - 100)
-        per_Te = ((quants[:, 2] - y_test[:, 2]) / y_test[:, 2] * 100 - 100)
+        # Calculate RMS percent error of quantities. Quants output order is: ne, Vp, Te.
+        # We can divide by y_test_scaled because all these quantities must be greater than 0.
+        quants = output.eval(feed_dict={X: data_test}) * y_diff + y_mean
+        y_test_scaled = y_test * y_diff + y_mean
+        per_ne = ((quants[:, 0] - y_test_scaled[:, 0]) / y_test_scaled[:, 0] * 100 - 100)
+        per_Vp = ((quants[:, 1] - y_test_scaled[:, 1]) / y_test_scaled[:, 1] * 100 - 100)
+        per_Te = ((quants[:, 2] - y_test_scaled[:, 2]) / y_test_scaled[:, 2] * 100 - 100)
         print("RMS: \tne: {:03.1f}%\tVp: {:03.1f}%\tTe: {:03.1f}%\t"
               .format(np.std(per_ne), np.std(per_Vp), np.std(per_Te)))
         wandb.log({'RMS_pct_ne': np.std(per_ne), 'RMS_pct_Vp': np.std(per_Vp),
                    'RMS_pct_Te': np.std(per_Te)}, step=epoch)
 
-        # make plots comparing learned parameters to the actual ones
-        fig_compare, axes = plot_utils.inferer_plot_comparison(sess, data_test, y_test, X, y,
-                                                               output, hyperparams)
-        # fig_worst, axes = plot_utils.plot_worst(sess, data_train, X, output, hyperparams)
+        # Make plots comparing learned parameters to the actual ones.
+        fig_compare, axes = plot_utils.inferer_plot_comparison(sess, data_test, X, output,
+                                                               y_mean, y_diff, hyperparams)
         wandb.log({"comaprison_plot": fig_compare}, step=epoch)
-        os.mkdir("plots/fig-{}".format(now))
         fig_compare.savefig("plots/fig-{}/compare".format(now))
+
+        # Show the worst performing fits (may not implement this).
+        # fig_worst, axes = plot_utils.plot_worst(sess, data_train, X, output, hyperparams)
         # fig_worst.savefig("plots/fig-{}/worst".format(now))
 
-        # log tensorflow graph and variables
-        checkpoint_name = "./saved_models/model-{}-final.ckpt".format(now)
-        wandb.save(checkpoint_name + ".index")
-        wandb.save(checkpoint_name + ".meta")
-        wandb.save(checkpoint_name + ".data-00000-of-00001")
+        # Make plots of the histograms of the learned sweep parameters.
+        # The conversion that WandB does to plotly really sucks.
+        fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, data_test, X,
+                                                                 output, hyperparams)
+        wandb.log({"hist_plot": fig_hist}, step=epoch)
+        fig_hist.savefig("plots/fig-{}/hist".format(now))
+
+        # Log tensorflow graph and variables.
+        final_checkpoint_name = "./saved_models/model-{}-final.ckpt".format(now)
+        wandb.save(final_checkpoint_name + ".index")
+        wandb.save(final_checkpoint_name + ".meta")
+        wandb.save(final_checkpoint_name + ".data-00000-of-00001")
+        best_checkpoint_name = "./saved_models/model-{}-best.ckpt".format(now)
+        wandb.save(best_checkpoint_name + ".index")
+        wandb.save(best_checkpoint_name + ".meta")
+        wandb.save(best_checkpoint_name + ".data-00000-of-00001")
 
 
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 500,
-                   'scale': 0.5,
-                   'learning_rate': 1e-6,
-                   'momentum': 0.99,
+                   'scale': 0.1,
+                   'learning_rate': 1e-7,
+                   'momentum': 0.90,
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,
                    'batch_size': 512,
-                   'steps': 500,
+                   'steps': 200000,
                    'seed': 42}
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
-    train(hyperparams, debug=True)
+    train(hyperparams, debug=False)
