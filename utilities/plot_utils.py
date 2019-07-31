@@ -81,8 +81,8 @@ def inferer_plot_comparison(sess, data_test, X, output, mean, diff, hyperparams)
 def inferer_plot_comparison_including_vsweep(sess, X, X_test, X_mean, X_ptp,
                                              output, y_mean, y_ptp, hyperparams):
     output_test = output.eval(session=sess, feed_dict={X: X_test}) * y_ptp + y_mean
-    vsweep_unscaled = (X_test * X_ptp - X_mean)[:, 0:hyperparams['n_inputs']]
-    current_unscaled = (X_test * X_ptp - X_mean)[:, hyperparams['n_inputs']:]
+    vsweep_unscaled = (X_test * X_ptp + X_mean)[:, 0:hyperparams['n_inputs']]
+    current_unscaled = (X_test * X_ptp + X_mean)[:, hyperparams['n_inputs']:]
 
     # generated_trace = output_test
     fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
@@ -94,9 +94,8 @@ def inferer_plot_comparison_including_vsweep(sess, X, X_test, X_mean, X_ptp,
         ne = np.array([output_test[randidx[x, y], 0]])
         Vp = np.array([output_test[randidx[x, y], 1]])
         Te = np.array([output_test[randidx[x, y], 2]])
-        # We subtract min to center the sweep at 0 again.
-        axes[x, y].plot(current_unscaled[randidx[x, y]] - np.min(current_unscaled[randidx[x, y]]),
-                        label="Input")
+
+        axes[x, y].plot(current_unscaled[randidx[x, y]], label="Input")
         axes[x, y].plot(generate.generate_basic_trace_from_grid
                         (ne, Vp, Te, vsweep_unscaled[randidx[x, y]])[0, 0, 0], label="Derived")
         axes[x, y].set_title("Index {}".format(randidx[x, y]))
