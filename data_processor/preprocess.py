@@ -48,3 +48,27 @@ def shuffle_split_data(data, hyperparams):
     data_valid = data[int(data_size * (hyperparams['frac_test'] + hyperparams['frac_train'])):, :]
 
     return data_train, data_test, data_valid
+
+
+# Add a random offset to the data.
+def add_offset_to_half(X, hyperparams, epoch=0):
+    offset_scale = 0.2 * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
+    # Add the current epoch so we get some variety over the entire training run.
+    np.random.seed(hyperparams['seed'] + epoch)
+    offsets = np.random.uniform(-offset_scale, offset_scale)
+    X[:, hyperparams['n_inputs']:] += offsets[:, np.newaxis]
+
+    return X
+
+
+# Add noise to the data.
+def add_noise_to_half(X, hyperparams, epoch=0):
+    noise_scale = 0.2 * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
+    # Add the current epoch so we get some variety over the entire training run.
+    np.random.seed(hyperparams['seed'] + epoch)
+    noise = np.random.normal(np.zeros((X.shape[0], hyperparams['n_inputs'])),
+                             np.repeat(noise_scale[:, np.newaxis], hyperparams['n_inputs'], axis=1),
+                             (X.shape[0], hyperparams['n_inputs']))
+    X[:, hyperparams['n_inputs']:] += noise
+
+    return X

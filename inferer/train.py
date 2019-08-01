@@ -159,21 +159,32 @@ def train(hyperparams, debug=False):
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
         best_loss = 1000
 
+        # Augment our test data.
+        X_test = preprocess.add_offset_to_half(X_test, hyperparams, epoch=0)
+        X_test = preprocess.add_noise_to_half(X_test, hyperparams, epoch=0)
+
+        # X_train_aug = X_train
         for epoch in range(hyperparams['steps']):
-            for i in range(X_train.shape[0] // hyperparams['batch_size']):
-                X_batch = X_train[i * hyperparams['batch_size']:
-                                  (i + 1) * hyperparams['batch_size']]
+            if epoch % 100 == 0:
+                # Augment data each epoch.
+                # Apply random offset to learn invariance.
+                X_train_aug = preprocess.add_offset_to_half(X_train, hyperparams, epoch=epoch)
+                # Apply noise.
+                X_train_aug = preprocess.add_noise_to_half(X_train_aug, hyperparams, epoch=epoch)
+
+            for i in range(X_train_aug.shape[0] // hyperparams['batch_size']):
+                X_batch = X_train_aug[i * hyperparams['batch_size']:
+                                      (i + 1) * hyperparams['batch_size']]
                 y_batch = y_train[i * hyperparams['batch_size']:
                                   (i + 1) * hyperparams['batch_size']]
                 sess.run([training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
                 if i == 0 and epoch % 10 == 0 and debug:
                     summary = sess.run(summaries_op,
-                                       feed_dict={X: X_train, y: y_train, training: True})
+                                       feed_dict={X: X_train_aug, y: y_train, training: True})
                     summary_writer.add_summary(summary, epoch)
-                    # maybe do over just a batch?
-            if (X_train.shape[0] % hyperparams['batch_size']) != 0:
-                X_batch = X_train[(i + 1) * hyperparams['batch_size']:]
+            if (X_train_aug.shape[0] % hyperparams['batch_size']) != 0:
+                X_batch = X_train_aug[(i + 1) * hyperparams['batch_size']:]
                 y_batch = y_train[(i + 1) * hyperparams['batch_size']:]
                 sess.run([training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
@@ -183,11 +194,15 @@ def train(hyperparams, debug=False):
                   "]", end="")
             print("\r", end="")
 
+            # loss_test = (loss_total.eval(feed_dict={X: X_test, y: y_test}) /
+            #              X_test.shape[0])
+            # print("loss: {}, epoch: {}".format(loss_test, epoch))
+
             if epoch % 10 == 0:
                 print("[" + "=" * 25 + "]", end="\t")
 
-                loss_train = (loss_total.eval(feed_dict={X: X_train, y: y_train}) /
-                              X_train.shape[0])
+                loss_train = (loss_total.eval(feed_dict={X: X_train_aug, y: y_train}) /
+                              X_train_aug.shape[0])
                 loss_test = (loss_total.eval(feed_dict={X: X_test, y: y_test}) /
                              X_test.shape[0])
                 wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
