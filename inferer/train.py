@@ -216,12 +216,25 @@ def train(hyperparams, debug=False):
 
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/model-{}.ckpt".format(now))
+                # Make plots comparing learned parameters to the actual ones.
+            if epoch % 1000 == 0:
+                fig_compare, axes = plot_utils. \
+                    inferer_plot_comparison_including_vsweep(sess, X, X_test, X_mean, X_ptp, output,
+                                                             y_mean, y_ptp, hyperparams)
+                # wandb.log({"comaprison_plot": fig_compare}, step=epoch)
+                fig_compare.savefig("plots/fig-{}/compare-epoch-{}".format(now, epoch))
+
+                # Make plots of the histograms of the learned sweep parameters.
+                fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test, X,
+                                                                         output, hyperparams)
+                # wandb.log({"hist_plot": fig_hist}, step=epoch)
+                fig_hist.savefig("plots/fig-{}/hist-epoch-{}".format(now, epoch))
 
         print("[" + "=" * 25 + "]", end="\t")
 
         # ---------------------- Log results ---------------------- #
         # calculate loss
-        loss_train = loss_total.eval(feed_dict={X: X_train, y: y_train}) / X_train.shape[0]
+        loss_train = loss_total.eval(feed_dict={X: X_train_aug, y: y_train}) / X_train_aug.shape[0]
         loss_test = loss_total.eval(feed_dict={X: X_test, y: y_test}) / X_test.shape[0]
         print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
               .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
