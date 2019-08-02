@@ -230,6 +230,11 @@ def train(hyperparams, debug=False):
                 # wandb.log({"hist_plot": fig_hist}, step=epoch)
                 fig_hist.savefig("plots/fig-{}/hist-epoch-{}".format(now, epoch))
 
+                del fig_compare
+                del axes
+                del fig_hist
+                del axes_hist
+
         print("[" + "=" * 25 + "]", end="\t")
 
         # ---------------------- Log results ---------------------- #
@@ -272,27 +277,31 @@ def train(hyperparams, debug=False):
         wandb.log({"hist_plot": fig_hist}, step=epoch)
         fig_hist.savefig("plots/fig-{}/hist".format(now))
 
-        # Log tensorflow graph and variables.
-        final_checkpoint_name = "./saved_models/model-{}-final.ckpt".format(now)
-        wandb.save(final_checkpoint_name + ".index")
-        wandb.save(final_checkpoint_name + ".meta")
-        wandb.save(final_checkpoint_name + ".data-00000-of-00001")
-        best_checkpoint_name = "./saved_models/model-{}-best.ckpt".format(now)
-        wandb.save(best_checkpoint_name + ".index")
-        wandb.save(best_checkpoint_name + ".meta")
-        wandb.save(best_checkpoint_name + ".data-00000-of-00001")
+        # Log tensorflow checkpoints (takes up a lot of space).
+        # final_checkpoint_name = "./saved_models/model-{}-final.ckpt".format(now)
+        # wandb.save(final_checkpoint_name + ".index")
+        # wandb.save(final_checkpoint_name + ".meta")
+        # wandb.save(final_checkpoint_name + ".data-00000-of-00001")
+        # best_checkpoint_name = "./saved_models/model-{}-best.ckpt".format(now)
+        # wandb.save(best_checkpoint_name + ".index")
+        # wandb.save(best_checkpoint_name + ".meta")
+        # wandb.save(best_checkpoint_name + ".data-00000-of-00001")
 
 
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 500,
                    'scale': 0.1,
-                   'learning_rate': 5e-7,
+                   'learning_rate': 1e-5,
                    'momentum': 0.99,
                    'frac_train': 0.6,
                    'frac_test': 0.2,
-                   'frac_valid': 0.2,  # This is actually unused.
+                   'frac_valid': 0.2,  # This is actually unused lol.
                    'batch_size': 512,
-                   'steps': 2000,
-                   'seed': 42}
-    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
+                   'steps': 20000,
+                   'seed': 42,
+                   'offset_scale': 0.0,
+                   'noise_scale': 0.05,
+                   'size_l1': 100,
+                   'size_l2': 20}
+    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams, debug=True)

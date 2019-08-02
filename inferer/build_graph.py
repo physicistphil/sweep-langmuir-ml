@@ -15,8 +15,8 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
     batch_norm = partial(tf.layers.batch_normalization, training=training,
                          momentum=hyperparams['momentum'])
 
-    size_l1 = 100
-    size_l2 = 20
+    size_l1 = hyperparams['size_l1']
+    size_l2 = hyperparams['size_l2']
     # size_ouput = 3 (default)
 
     with tf.name_scope("nn"):
