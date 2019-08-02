@@ -116,6 +116,7 @@ venv.bak/
 */plots/
 # summaries
 */summaries/
+*/summary_archive/
 
 # Weights & Biases files
 */wandb/
