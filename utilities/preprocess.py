@@ -126,7 +126,7 @@ def phase(angle):
 # fft_abs.shape = (51, 64, 500) -- 51 positions, 64 shots per position.
 def add_real_noise(X, hyperparams, epoch=0):
     noise_scale = hyperparams['noise_scale'] * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
-    spectrum_path = "/home/phil/Desktop/sweeps/sweep-langmuir-ml/data_processor/"
+    spectrum_path = "/home/phil/Desktop/sweeps/data/"
     fft_abs = np.load(spectrum_path + "fft_abs.npz")['fft_abs']
     fft_abs = np.mean(fft_abs, axis=1)[0][np.newaxis, :]  # Average over shots, r = 0 cm position.
 
