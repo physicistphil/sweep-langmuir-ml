@@ -68,6 +68,8 @@ def get_mirror_data_with_sweeps(input_size):
         data_trace = -data_trace
         # Remove the offset of the traces by averaging the first 10 points and subtracting it.
         data_trace -= np.mean(data_trace[:, 0:10], axis=1)[:, np.newaxis]
+        # Divide by the resistor value (11 ohms) to get the trace current.
+        data_trace = data_trace / 11.0
         # Merge the sweep and trace together like we do for the synthetic sweeps.
         dataset = np.concatenate((data_sweep, data_trace), axis=1)
         # Cache the result on disk (NVME SSDs FTW) to save time.
@@ -90,7 +92,7 @@ def shuffle_split_data(data, hyperparams):
 
 
 # Add a random offset to the data.
-def add_offset_to_half(X, hyperparams, epoch=0):
+def add_offset(X, hyperparams, epoch=0):
     offset_scale = hyperparams['offset_scale'] * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
     # Add the current epoch so we get some variety over the entire training run.
     np.random.seed(hyperparams['seed'] + epoch)
@@ -101,7 +103,7 @@ def add_offset_to_half(X, hyperparams, epoch=0):
 
 
 # Add noise to the data.
-def add_noise_to_half(X, hyperparams, epoch=0):
+def add_noise(X, hyperparams, epoch=0):
     noise_scale = hyperparams['noise_scale'] * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
     # Add the current epoch so we get some variety over the entire training run.
     np.random.seed(hyperparams['seed'] + epoch)
@@ -109,5 +111,34 @@ def add_noise_to_half(X, hyperparams, epoch=0):
                              np.repeat(noise_scale[:, np.newaxis], hyperparams['n_inputs'], axis=1),
                              (X.shape[0], hyperparams['n_inputs']))
     X[:, hyperparams['n_inputs']:] += noise
+
+    return X
+
+
+# Get the phase in r + ic from an angle.
+def phase(angle):
+    return np.cos(angle) + 1.0j * np.sin(angle)
+
+
+# Add noise derived from the fluctuations on the Langmuir probe sweep.
+# Hopefully this makes the training examples a bit more realistic and improve accuracy.
+# fft_abs was calculated beforehand from the first mirror sweep data (09).
+# fft_abs.shape = (51, 64, 500) -- 51 positions, 64 shots per position.
+def add_real_noise(X, hyperparams, epoch=0):
+    noise_scale = hyperparams['noise_scale'] * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
+    spectrum_path = "/home/phil/Desktop/sweeps/sweep-langmuir-ml/data_processor/"
+    fft_abs = np.load(spectrum_path + "fft_abs.npz")['fft_abs']
+    fft_abs = np.mean(fft_abs, axis=1)[0][np.newaxis, :]  # Average over shots, r = 0 cm position.
+
+    # Add the current epoch so we get some variety over the entire training run.
+    seed = hyperparams['seed'] + epoch
+    np.random.seed(seed)
+    random_angle = np.random.uniform(0.0, 2.0 * np.pi, size=(X.shape[0], hyperparams['n_inputs']))
+    # np.random.seed(seed)
+    # random_shot = np.random.randint(0, 64, shape=X.shape[0])
+    # Normalizing to values to have roughly unity peak-to-peak by dividing by 0.2
+    noise = np.real(np.fft.ifft(fft_abs *
+                                phase(random_angle))) / 0.1
+    X[:, hyperparams['n_inputs']:] += noise * noise_scale[:, np.newaxis]
 
     return X

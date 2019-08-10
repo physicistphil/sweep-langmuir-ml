@@ -3,18 +3,18 @@
 import tensorflow as tf
 import numpy as np
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 # Modify log levels to keep console clean.
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 # Custom tools from other directories
 import sys
-sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/data_processor')
-import preprocess
-sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/simulator')
-import generate
 sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/utilities')
+import preprocess
+import generate
 import plot_utils
 
 # From the inferer directory
@@ -39,7 +39,7 @@ import wandb
 # Generate synthetic sweeps and make conventional train / test / validation sets.
 # Order is: ne (electron density), Vp (plasma potential), and Te (electron temperature)
 def gather_synthetic_scaled_data(hyperparams):
-    print("Generating traces...", end=" ")
+    print("Generating traces...", end=" ", flush=True)
     ne = np.linspace(1e17, 1e18, 20)  # Densities in m^-3 (typical of LAPD)
     Vp = np.linspace(20, 60, 20)  # Plasma potential in V (typical of LAPD? idk)
     e = 1.602e-19  # elementary charge
@@ -72,12 +72,15 @@ def gather_synthetic_scaled_data(hyperparams):
 
 
 def gather_random_synthetic_scaled_data(hyperparams):
-    size = 3072  # Number of examples to generate. This is comparable to the number of real sweeps.
+    print("Generating traces...", end=" ", flush=True)
 
-    ne_range = np.array([1e17, 1e19])
-    Vp_range = np.array([5, 15])
+    # Number of examples to generate. There are 3264 * 5 real ones from the mirror dataset.
+    size = hyperparams['num_examples']
+
+    ne_range = np.array([1e15, 1e18])
+    Vp_range = np.array([1, 50])
     e = 1.602e-19  # Elementary charge
-    Te_range = np.array([1, 5]) * e  # We're defining it in terms of eV because it's comfortable.
+    Te_range = np.array([0.01, 5]) * e  # We're defining it in terms of eV because it's comfortable.
     S = 2e-6  # Probe area in m^2
 
     # Voltages used when collecting real sweeps are within this range.
@@ -111,6 +114,7 @@ def gather_random_synthetic_scaled_data(hyperparams):
     y_ptp = np.ptp(y, axis=0)
     y = (y - y_mean) / y_ptp
     y_train, y_test, y_valid = preprocess.shuffle_split_data(y, hyperparams)
+    print("Done.")
 
     return X_train, X_test, X_valid, X_mean, X_ptp, y_train, y_test, y_valid, y_mean, y_ptp
 
@@ -160,17 +164,19 @@ def train(hyperparams, debug=False):
         best_loss = 1000
 
         # Augment our test data.
-        X_test = preprocess.add_offset_to_half(X_test, hyperparams, epoch=0)
-        X_test = preprocess.add_noise_to_half(X_test, hyperparams, epoch=0)
+        X_test = preprocess.add_offset(X_test, hyperparams, epoch=0)
+        # X_test = preprocess.add_noise(X_test, hyperparams, epoch=0)
+        X_test = preprocess.add_real_noise(X_test, hyperparams, epoch=0)
 
         # X_train_aug = X_train
         for epoch in range(hyperparams['steps']):
-            if epoch % 100 == 0:
+            if epoch == 0:
                 # Augment data each epoch.
                 # Apply random offset to learn invariance.
-                X_train_aug = preprocess.add_offset_to_half(X_train, hyperparams, epoch=epoch)
+                X_train_aug = preprocess.add_offset(X_train, hyperparams, epoch=epoch)
                 # Apply noise.
-                X_train_aug = preprocess.add_noise_to_half(X_train_aug, hyperparams, epoch=epoch)
+                # X_train_aug = preprocess.add_noise(X_train_aug, hyperparams, epoch=epoch)
+                X_train_aug = preprocess.add_real_noise(X_train_aug, hyperparams, epoch=epoch)
 
             for i in range(X_train_aug.shape[0] // hyperparams['batch_size']):
                 X_batch = X_train_aug[i * hyperparams['batch_size']:
@@ -189,8 +195,8 @@ def train(hyperparams, debug=False):
                 sess.run([training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
 
-            print("[" + "=" * int(25.0 * (epoch % 10) / 10.0) +
-                  " " * int(np.ceil(25.0 * (1.0 - (epoch % 10) / 10.0))) +
+            print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
+                  " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
                   "]", end="")
             print("\r", end="")
 
@@ -199,7 +205,7 @@ def train(hyperparams, debug=False):
             # print("loss: {}, epoch: {}".format(loss_test, epoch))
 
             if epoch % 10 == 0:
-                print("[" + "=" * 25 + "]", end="\t")
+                print("[" + "=" * 20 + "]", end="\t")
 
                 loss_train = (loss_total.eval(feed_dict={X: X_train_aug, y: y_train}) /
                               X_train_aug.shape[0])
@@ -217,25 +223,33 @@ def train(hyperparams, debug=False):
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/model-{}.ckpt".format(now))
                 # Make plots comparing learned parameters to the actual ones.
-            if epoch % 1000 == 0:
+            if epoch % 100 == 0:  # Changed this to 100 from 1000 because we have much more data.
                 fig_compare, axes = plot_utils. \
                     inferer_plot_comparison_including_vsweep(sess, X, X_test, X_mean, X_ptp, output,
                                                              y_mean, y_ptp, hyperparams)
                 # wandb.log({"comaprison_plot": fig_compare}, step=epoch)
                 fig_compare.savefig("plots/fig-{}/compare-epoch-{}".format(now, epoch))
-
                 # Make plots of the histograms of the learned sweep parameters.
                 fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test, X,
                                                                          output, hyperparams)
                 # wandb.log({"hist_plot": fig_hist}, step=epoch)
                 fig_hist.savefig("plots/fig-{}/hist-epoch-{}".format(now, epoch))
+                # Close all the figures so that memory can be freed.
+                plt.close('all')
 
-                del fig_compare
-                del axes
-                del fig_hist
-                del axes_hist
+                # Calculate RMS percent error of quantities. Quants output order is: ne, Vp, Te.
+                # We can divide by y_test_scaled because it's always > 0.
+                quants = output.eval(feed_dict={X: X_test}) * y_ptp + y_mean
+                y_test_scaled = y_test * y_ptp + y_mean
+                per_ne = ((quants[:, 0] - y_test_scaled[:, 0]) / y_test_scaled[:, 0] * 100 - 100)
+                per_Vp = ((quants[:, 1] - y_test_scaled[:, 1]) / y_test_scaled[:, 1] * 100 - 100)
+                per_Te = ((quants[:, 2] - y_test_scaled[:, 2]) / y_test_scaled[:, 2] * 100 - 100)
+                print("RMS: \tne: {:03.1f}%\tVp: {:03.1f}%\tTe: {:03.1f}%\t"
+                      .format(np.std(per_ne), np.std(per_Vp), np.std(per_Te)))
+                wandb.log({'RMS_pct_ne': np.std(per_ne), 'RMS_pct_Vp': np.std(per_Vp),
+                           'RMS_pct_Te': np.std(per_Te)}, step=epoch)
 
-        print("[" + "=" * 25 + "]", end="\t")
+        print("[" + "=" * 20 + "]", end="\t")
 
         # ---------------------- Log results ---------------------- #
         # calculate loss
@@ -296,12 +310,13 @@ if __name__ == '__main__':
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,  # This is actually unused lol.
-                   'batch_size': 512,
-                   'steps': 20000,
+                   'num_examples': 2 ** 18,
+                   'batch_size': 2048,
+                   'steps': 2000,
                    'seed': 42,
                    'offset_scale': 0.0,
-                   'noise_scale': 0.05,
-                   'size_l1': 100,
-                   'size_l2': 20}
+                   'noise_scale': 0.4,
+                   'size_l1': 50,
+                   'size_l2': 50}
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams, debug=True)

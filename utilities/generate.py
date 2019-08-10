@@ -91,9 +91,11 @@ def generate_random_traces_from_array(ne_range, Vp_range, Te_range,
     ne = np.repeat(np.exp(np.random.uniform(np.log(ne_range[0]), np.log(ne_range[1]), (size, 1))),
                    n_inputs, axis=1)
     np.random.seed(hyperparams['seed'])
-    Vp = np.repeat(np.random.uniform(Vp_range[0], Vp_range[1], (size, 1)), n_inputs, axis=1)
+    Vp = np.repeat(np.random.uniform(Vp_range[0], Vp_range[1], (size, 1)),
+                   n_inputs, axis=1)
     np.random.seed(hyperparams['seed'])
-    Te = np.repeat(np.random.uniform(Te_range[0], Te_range[1], (size, 1)), n_inputs, axis=1)
+    Te = np.repeat(np.exp(np.random.uniform(np.log(Te_range[0]), np.log(Te_range[1]), (size, 1))),
+                   n_inputs, axis=1)
 
     # Electron saturation current. (Amps / sqrt(eV))
     I_esat = S * ne * e / np.sqrt(2 * np.pi * me)
