@@ -123,3 +123,9 @@ venv.bak/
 
 # Jupyter notebooks
 *.ipynb
+
+# numpy compressed files
+*.npz
+
+# nvidia profiler output
+*.nvvp
