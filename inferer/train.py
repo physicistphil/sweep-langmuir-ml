@@ -158,6 +158,8 @@ def train(hyperparams, debug=False):
 
     # ---------------------- Begin training ---------------------- #
     with tf.compat.v1.Session(config=config) as sess:
+        batch_size = hyperparams['batch_size']
+
         init.run()
         summaries_op = tf.compat.v1.summary.merge_all()
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
@@ -178,20 +180,21 @@ def train(hyperparams, debug=False):
                 # X_train_aug = preprocess.add_noise(X_train_aug, hyperparams, epoch=epoch)
                 X_train_aug = preprocess.add_real_noise(X_train_aug, hyperparams, epoch=epoch)
 
-            for i in range(X_train_aug.shape[0] // hyperparams['batch_size']):
-                X_batch = X_train_aug[i * hyperparams['batch_size']:
-                                      (i + 1) * hyperparams['batch_size']]
-                y_batch = y_train[i * hyperparams['batch_size']:
-                                  (i + 1) * hyperparams['batch_size']]
+            for i in range(X_train_aug.shape[0] // batch_size):
+                X_batch = X_train_aug[i * batch_size:
+                                      (i + 1) * batch_size]
+                y_batch = y_train[i * batch_size:
+                                  (i + 1) * batch_size]
                 sess.run([training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
                 if i == 0 and epoch % 10 == 0 and debug:
                     summary = sess.run(summaries_op,
-                                       feed_dict={X: X_train_aug, y: y_train, training: True})
+                                       feed_dict={X: X_train_aug[0:batch_size],
+                                                  y: y_train[0:batch_size], training: True})
                     summary_writer.add_summary(summary, epoch)
-            if (X_train_aug.shape[0] % hyperparams['batch_size']) != 0:
-                X_batch = X_train_aug[(i + 1) * hyperparams['batch_size']:]
-                y_batch = y_train[(i + 1) * hyperparams['batch_size']:]
+            if (X_train_aug.shape[0] % batch_size) != 0:
+                X_batch = X_train_aug[(i + 1) * batch_size:]
+                y_batch = y_train[(i + 1) * batch_size:]
                 sess.run([training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
 
@@ -207,10 +210,12 @@ def train(hyperparams, debug=False):
             if epoch % 10 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
 
-                loss_train = (loss_total.eval(feed_dict={X: X_train_aug, y: y_train}) /
-                              X_train_aug.shape[0])
-                loss_test = (loss_total.eval(feed_dict={X: X_test, y: y_test}) /
-                             X_test.shape[0])
+                loss_train = (loss_total.eval(feed_dict={X: X_train_aug[0:batch_size],
+                                                         y: y_train[0:batch_size]}) /
+                              batch_size)
+                loss_test = (loss_total.eval(feed_dict={X: X_test[0:batch_size],
+                                                        y: y_test[0:batch_size]}) /
+                             batch_size)
                 wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
                 print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
@@ -225,13 +230,14 @@ def train(hyperparams, debug=False):
                 # Make plots comparing learned parameters to the actual ones.
             if epoch % 100 == 0:  # Changed this to 100 from 1000 because we have much more data.
                 fig_compare, axes = plot_utils. \
-                    inferer_plot_comparison_including_vsweep(sess, X, X_test, X_mean, X_ptp, output,
+                    inferer_plot_comparison_including_vsweep(sess, X, X_test[0:batch_size],
+                                                             X_mean, X_ptp, output,
                                                              y_mean, y_ptp, hyperparams)
                 # wandb.log({"comaprison_plot": fig_compare}, step=epoch)
                 fig_compare.savefig("plots/fig-{}/compare-epoch-{}".format(now, epoch))
                 # Make plots of the histograms of the learned sweep parameters.
-                fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test, X,
-                                                                         output, hyperparams)
+                fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test[0:batch_size],
+                                                                         X, output, hyperparams)
                 # wandb.log({"hist_plot": fig_hist}, step=epoch)
                 fig_hist.savefig("plots/fig-{}/hist-epoch-{}".format(now, epoch))
                 # Close all the figures so that memory can be freed.
@@ -239,8 +245,8 @@ def train(hyperparams, debug=False):
 
                 # Calculate RMS percent error of quantities. Quants output order is: ne, Vp, Te.
                 # We can divide by y_test_scaled because it's always > 0.
-                quants = output.eval(feed_dict={X: X_test}) * y_ptp + y_mean
-                y_test_scaled = y_test * y_ptp + y_mean
+                quants = output.eval(feed_dict={X: X_test[0:batch_size]}) * y_ptp + y_mean
+                y_test_scaled = y_test[0:batch_size] * y_ptp + y_mean
                 per_ne = ((quants[:, 0] - y_test_scaled[:, 0]) / y_test_scaled[:, 0] * 100 - 100)
                 per_Vp = ((quants[:, 1] - y_test_scaled[:, 1]) / y_test_scaled[:, 1] * 100 - 100)
                 per_Te = ((quants[:, 2] - y_test_scaled[:, 2]) / y_test_scaled[:, 2] * 100 - 100)
@@ -253,8 +259,10 @@ def train(hyperparams, debug=False):
 
         # ---------------------- Log results ---------------------- #
         # calculate loss
-        loss_train = loss_total.eval(feed_dict={X: X_train_aug, y: y_train}) / X_train_aug.shape[0]
-        loss_test = loss_total.eval(feed_dict={X: X_test, y: y_test}) / X_test.shape[0]
+        loss_train = loss_total.eval(feed_dict={X: X_train_aug[0:batch_size],
+                                                y: y_train[0:batch_size]}) / batch_size
+        loss_test = loss_total.eval(feed_dict={X: X_test[0:batch_size],
+                                               y: y_test[0:batch_size]}) / batch_size
         print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
               .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
                       loss_train, loss_test))
@@ -263,8 +271,8 @@ def train(hyperparams, debug=False):
 
         # Calculate RMS percent error of quantities. Quants output order is: ne, Vp, Te.
         # We can divide by y_test_scaled because all these quantities must be greater than 0.
-        quants = output.eval(feed_dict={X: X_test}) * y_ptp + y_mean
-        y_test_scaled = y_test * y_ptp + y_mean
+        quants = output.eval(feed_dict={X: X_test[0:batch_size]}) * y_ptp + y_mean
+        y_test_scaled = y_test[0:batch_size] * y_ptp + y_mean
         per_ne = ((quants[:, 0] - y_test_scaled[:, 0]) / y_test_scaled[:, 0] * 100 - 100)
         per_Vp = ((quants[:, 1] - y_test_scaled[:, 1]) / y_test_scaled[:, 1] * 100 - 100)
         per_Te = ((quants[:, 2] - y_test_scaled[:, 2]) / y_test_scaled[:, 2] * 100 - 100)
@@ -275,7 +283,8 @@ def train(hyperparams, debug=False):
 
         # Make plots comparing learned parameters to the actual ones.
         fig_compare, axes = plot_utils. \
-            inferer_plot_comparison_including_vsweep(sess, X, X_test, X_mean, X_ptp, output,
+            inferer_plot_comparison_including_vsweep(sess, X, X_test[0:batch_size], X_mean,
+                                                     X_ptp, output,
                                                      y_mean, y_ptp, hyperparams)
         wandb.log({"comaprison_plot": fig_compare}, step=epoch)
         fig_compare.savefig("plots/fig-{}/compare".format(now))
@@ -286,7 +295,7 @@ def train(hyperparams, debug=False):
 
         # Make plots of the histograms of the learned sweep parameters.
         # The conversion that WandB does to plotly really sucks.
-        fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test, X,
+        fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test[0:batch_size], X,
                                                                  output, hyperparams)
         wandb.log({"hist_plot": fig_hist}, step=epoch)
         fig_hist.savefig("plots/fig-{}/hist".format(now))
