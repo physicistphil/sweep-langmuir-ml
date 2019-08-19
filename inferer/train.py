@@ -140,10 +140,10 @@ def train(hyperparams, debug=False):
     # Build the models to train on.
     if not debug:
         training_op, X, y, training, output, loss_total \
-            = build_graph.make_small_nn(hyperparams, size_output=3)
+            = build_graph.make_conv_nn(hyperparams, size_output=3)
     else:
         training_op, X, y, training, output, loss_total, grads \
-            = build_graph.make_small_nn(hyperparams, size_output=3, debug=debug)
+            = build_graph.make_conv_nn(hyperparams, size_output=3, debug=debug)
         for grad, var in grads:
             tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
             tf.compat.v1.summary.histogram("variables/" + var.name, var)
@@ -325,7 +325,7 @@ if __name__ == '__main__':
                    'seed': 42,
                    'offset_scale': 0.0,
                    'noise_scale': 0.4,
-                   'size_l1': 50,
-                   'size_l2': 50}
+                   'size_l1': 'N/A',
+                   'size_l2': 'N/A'}
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams, debug=True)
