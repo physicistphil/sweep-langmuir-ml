@@ -23,52 +23,30 @@ import build_graph
 # weights and biases -- ML experiment tracker
 import wandb
 
+
 # Get data from real experiments (so far just from the mirror dataset).
-"""
+def get_real_data(hyperparams):
     print("Getting data...", end=" ")
     sys.stdout.flush()
-    data = preprocess.get_mirror_data(hyperparams['n_inputs'], return_grids=True)
-    data_train, data_test, data_valid = preprocess.shuffle_split_data(data, hyperparams)
-    experiment.log_dataset_hash(data_train)
-    print("Done.")
-
-    return data_train, data_test, data_valid
-"""
-
-
-# Generate synthetic sweeps and make conventional train / test / validation sets.
-# Order is: ne (electron density), Vp (plasma potential), and Te (electron temperature)
-def gather_synthetic_scaled_data(hyperparams):
-    print("Generating traces...", end=" ", flush=True)
-    ne = np.linspace(1e17, 1e18, 20)  # Densities in m^-3 (typical of LAPD)
-    Vp = np.linspace(20, 60, 20)  # Plasma potential in V (typical of LAPD? idk)
-    e = 1.602e-19  # elementary charge
-    Te = np.linspace(0.5, 5, 40) * e  # Electron temperature in J (typical of LAPD)
-    vsweep = np.linspace(-30, 70, hyperparams['n_inputs'])  # Sweep voltage in V
-    S = 2e-6  # Probe area in m^2
-
-    ne_grid, Vp_grid, Te_grid, vsweep_grid, data \
-        = generate.generate_basic_trace_from_grid(ne, Vp, Te, vsweep, S=S, return_grids=True)
-
     n_inputs = hyperparams['n_inputs']
-    y = np.stack((ne_grid.reshape((-1, n_inputs)), Vp_grid.reshape((-1, n_inputs)),
-                  Te_grid.reshape(-1, n_inputs)))[:, :, 0].transpose()
-    mean = np.mean(y, axis=0)
-    diff = np.max(y, axis=0) - np.min(y, axis=0)
-    y = (y - mean) / diff
-    y_train, y_test, y_valid = preprocess.shuffle_split_data(y, hyperparams)
+    signal = preprocess.get_mirror_data_with_sweeps(n_inputs)
 
-    data = np.reshape(data, (-1, n_inputs))
-    # Add random displacements to force vertical translation invariance in our inference.
-    # This is to avoid digitizer offsets from messing with our estimates.
-    # 0.1 Amp (~1 V) offset is typical.
-    np.random.seed(hyperparams['seed'])
-    data += np.random.uniform(-0.1, 0.1, size=(data.shape[0], 1))
+    # Find the voltage sweep and current means and peak-to-peaks so the model is easier to train.
+    vsweep_mean = np.full(hyperparams['n_inputs'], np.mean(signal[:, 0:n_inputs]))
+    vsweep_ptp = np.full(hyperparams['n_inputs'], np.ptp(signal[:, 0:n_inputs]))
+    current_mean = np.full(hyperparams['n_inputs'], np.mean(signal[:, n_inputs:]))
+    current_ptp = np.full(hyperparams['n_inputs'], np.ptp(signal[:, n_inputs:]))
+    # Combine the two so we have a nice neat X, y, and scalings tuple returned by the function.
+    data_mean = np.concatenate((vsweep_mean, current_mean))
+    data_ptp = np.concatenate((vsweep_ptp, current_ptp))
+
+    # Voltage and current sweeps are already concatendated.
+    # Centering and scaling the input so that it's easier to train.
+    data = (signal - data_mean) / data_ptp
     data_train, data_test, data_valid = preprocess.shuffle_split_data(data, hyperparams)
     print("Done.")
 
-    # TODO: return vsweep as well to allow for training on different voltage sweeps
-    return data_train, data_test, data_valid, y_train, y_test, y_valid, mean, diff
+    return data_train, data_test, data_valid, data_mean, data_ptp
 
 
 def gather_random_synthetic_scaled_data(hyperparams):
@@ -102,8 +80,6 @@ def gather_random_synthetic_scaled_data(hyperparams):
     X_ptp = np.concatenate((vsweep_ptp, current_ptp))
 
     # Merge the voltage sweep and current into one array.
-    # Because the network is fully connected, order does not matter.
-    # This will probably need to changed if more complicated / powerful architectures are used.
     # We're also centering and scaling the input so that it's easier to train.
     X = (np.concatenate((vsweep, current), axis=1) - X_mean) / X_ptp
     X_train, X_test, X_valid = preprocess.shuffle_split_data(X, hyperparams)
@@ -131,22 +107,28 @@ def train(hyperparams, debug=False):
     wandb.log({"now": now}, step=0)
     os.mkdir("plots/fig-{}".format(now))
 
-    # choose which data to train on
-    # X_train, X_test, X_valid, y_train, y_test, y_valid, y_mean, y_diff \
-    #   = gather_synthetic_scaled_data(hyperparams)
+    # Gather all the data
+    data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
     X_train, X_test, X_valid, X_mean, X_ptp, y_train, y_test, y_valid, y_mean, y_ptp \
         = gather_random_synthetic_scaled_data(hyperparams)
 
     # Build the models to train on.
     if not debug:
-        training_op, X, y, training, output, loss_total \
-            = build_graph.make_conv_nn(hyperparams, size_output=3)
+        (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
+         ae_loss_total, infer_loss_total) = build_graph.make_small_nn(hyperparams, size_output=3)
     else:
-        training_op, X, y, training, output, loss_total, grads \
-            = build_graph.make_conv_nn(hyperparams, size_output=3, debug=debug)
-        for grad, var in grads:
-            tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
-            tf.compat.v1.summary.histogram("variables/" + var.name, var)
+        (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
+         ae_loss_total, infer_loss_total,
+         ae_grads, infer_grads) = build_graph.make_small_nn(hyperparams, size_output=3, debug=debug)
+
+        for grad, var in ae_grads:
+            if grad is not None and var is not None:
+                tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
+                tf.compat.v1.summary.histogram("variables/" + var.name, var)
+        for grad, var in infer_grads:
+            if grad is not None and var is not None:
+                tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
+                tf.compat.v1.summary.histogram("variables/" + var.name, var)
 
     # Initialize configuration and variables.
     init = tf.compat.v1.global_variables_initializer()
@@ -163,29 +145,42 @@ def train(hyperparams, debug=False):
         init.run()
         summaries_op = tf.compat.v1.summary.merge_all()
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
-        best_loss = 1000
+        infer_best_loss = 1000
 
         # Augment our test data.
         X_test = preprocess.add_offset(X_test, hyperparams, epoch=0)
         # X_test = preprocess.add_noise(X_test, hyperparams, epoch=0)
         X_test = preprocess.add_real_noise(X_test, hyperparams, epoch=0)
 
-        # X_train_aug = X_train
+        # Apply random offset to learn invariance.
+        X_train_aug = preprocess.add_offset(X_train, hyperparams, epoch=0)
+        # Apply noise.
+        # X_train_aug = preprocess.add_noise(X_train_aug, hyperparams, epoch=epoch)
+        X_train_aug = preprocess.add_real_noise(X_train_aug, hyperparams, epoch=0)
         for epoch in range(hyperparams['steps']):
-            if epoch == 0:
-                # Augment data each epoch.
-                # Apply random offset to learn invariance.
-                X_train_aug = preprocess.add_offset(X_train, hyperparams, epoch=epoch)
-                # Apply noise.
-                # X_train_aug = preprocess.add_noise(X_train_aug, hyperparams, epoch=epoch)
-                X_train_aug = preprocess.add_real_noise(X_train_aug, hyperparams, epoch=epoch)
 
+            # Train the autoencoder.
+            for i in range(data_train.shape[0] // batch_size):
+                data_batch = data_train[i * batch_size:(i + 1) * batch_size]
+                sess.run([ae_training_op, extra_update_ops],
+                         feed_dict={X: data_batch, y: np.zeros((batch_size, 3)), training: True})
+                if i == 0 and epoch % 10 == 0 and debug:
+                    summary = sess.run(summaries_op,
+                                       feed_dict={X: data_train[0:batch_size],
+                                                  y: np.zeros((batch_size, 3)), training: True})
+                    summary_writer.add_summary(summary, epoch)
+            if (data_train.shape[0] % batch_size) != 0:
+                data_batch = data_train[(i + 1) * batch_size:]
+                sess.run([ae_training_op, extra_update_ops],
+                         feed_dict={X: data_batch, y: np.zeros((batch_size, 3)), training: True})
+
+            # Train the inferer.
             for i in range(X_train_aug.shape[0] // batch_size):
                 X_batch = X_train_aug[i * batch_size:
                                       (i + 1) * batch_size]
                 y_batch = y_train[i * batch_size:
                                   (i + 1) * batch_size]
-                sess.run([training_op, extra_update_ops],
+                sess.run([infer_training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
                 if i == 0 and epoch % 10 == 0 and debug:
                     summary = sess.run(summaries_op,
@@ -195,7 +190,7 @@ def train(hyperparams, debug=False):
             if (X_train_aug.shape[0] % batch_size) != 0:
                 X_batch = X_train_aug[(i + 1) * batch_size:]
                 y_batch = y_train[(i + 1) * batch_size:]
-                sess.run([training_op, extra_update_ops],
+                sess.run([infer_training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
@@ -210,34 +205,37 @@ def train(hyperparams, debug=False):
             if epoch % 10 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
 
-                loss_train = (loss_total.eval(feed_dict={X: X_train_aug[0:batch_size],
-                                                         y: y_train[0:batch_size]}) /
-                              batch_size)
-                loss_test = (loss_total.eval(feed_dict={X: X_test[0:batch_size],
-                                                        y: y_test[0:batch_size]}) /
-                             batch_size)
-                wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
+                infer_loss_train = (infer_loss_total.eval(feed_dict={X: X_train_aug[0:batch_size],
+                                                                     y: y_train[0:batch_size]}) /
+                                    batch_size)
+                infer_loss_test = (infer_loss_total.eval(feed_dict={X: X_test[0:batch_size],
+                                                                    y: y_test[0:batch_size]}) /
+                                   batch_size)
+                wandb.log({'infer_loss_train': infer_loss_train,
+                           'infer_loss_test': infer_loss_test}, step=epoch)
                 print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
-                              loss_train, loss_test))
+                              infer_loss_train, infer_loss_test))
 
-                if loss_test < best_loss:
-                    best_loss = loss_test
+                if infer_loss_test < infer_best_loss:
+                    infer_best_loss = infer_loss_test
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
 
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/model-{}.ckpt".format(now))
-                # Make plots comparing learned parameters to the actual ones.
+
+            # Make plots comparing learned parameters to the actual ones.
             if epoch % 100 == 0:  # Changed this to 100 from 1000 because we have much more data.
                 fig_compare, axes = plot_utils. \
                     inferer_plot_comparison_including_vsweep(sess, X, X_test[0:batch_size],
-                                                             X_mean, X_ptp, output,
+                                                             X_mean, X_ptp, infer_output,
                                                              y_mean, y_ptp, hyperparams)
                 # wandb.log({"comaprison_plot": fig_compare}, step=epoch)
                 fig_compare.savefig("plots/fig-{}/compare-epoch-{}".format(now, epoch))
                 # Make plots of the histograms of the learned sweep parameters.
                 fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test[0:batch_size],
-                                                                         X, output, hyperparams)
+                                                                         X, infer_output,
+                                                                         hyperparams)
                 # wandb.log({"hist_plot": fig_hist}, step=epoch)
                 fig_hist.savefig("plots/fig-{}/hist-epoch-{}".format(now, epoch))
                 # Close all the figures so that memory can be freed.
@@ -245,7 +243,7 @@ def train(hyperparams, debug=False):
 
                 # Calculate RMS percent error of quantities. Quants output order is: ne, Vp, Te.
                 # We can divide by y_test_scaled because it's always > 0.
-                quants = output.eval(feed_dict={X: X_test[0:batch_size]}) * y_ptp + y_mean
+                quants = infer_output.eval(feed_dict={X: X_test[0:batch_size]}) * y_ptp + y_mean
                 y_test_scaled = y_test[0:batch_size] * y_ptp + y_mean
                 per_ne = ((quants[:, 0] - y_test_scaled[:, 0]) / y_test_scaled[:, 0] * 100 - 100)
                 per_Vp = ((quants[:, 1] - y_test_scaled[:, 1]) / y_test_scaled[:, 1] * 100 - 100)
@@ -259,19 +257,20 @@ def train(hyperparams, debug=False):
 
         # ---------------------- Log results ---------------------- #
         # calculate loss
-        loss_train = loss_total.eval(feed_dict={X: X_train_aug[0:batch_size],
-                                                y: y_train[0:batch_size]}) / batch_size
-        loss_test = loss_total.eval(feed_dict={X: X_test[0:batch_size],
-                                               y: y_test[0:batch_size]}) / batch_size
+        infer_loss_train = infer_loss_total.eval(feed_dict={X: X_train_aug[0:batch_size],
+                                                            y: y_train[0:batch_size]}) / batch_size
+        infer_loss_test = infer_loss_total.eval(feed_dict={X: X_test[0:batch_size],
+                                                           y: y_test[0:batch_size]}) / batch_size
         print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
               .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
-                      loss_train, loss_test))
-        wandb.log({'loss_train': loss_train, 'loss_test': loss_test}, step=epoch)
+                      infer_loss_train, infer_loss_test))
+        wandb.log({'infer_loss_train': infer_loss_train, 'infer_loss_test': infer_loss_test},
+                  step=epoch)
         saver.save(sess, "./saved_models/model-{}-final.ckpt".format(now))
 
         # Calculate RMS percent error of quantities. Quants output order is: ne, Vp, Te.
         # We can divide by y_test_scaled because all these quantities must be greater than 0.
-        quants = output.eval(feed_dict={X: X_test[0:batch_size]}) * y_ptp + y_mean
+        quants = infer_output.eval(feed_dict={X: X_test[0:batch_size]}) * y_ptp + y_mean
         y_test_scaled = y_test[0:batch_size] * y_ptp + y_mean
         per_ne = ((quants[:, 0] - y_test_scaled[:, 0]) / y_test_scaled[:, 0] * 100 - 100)
         per_Vp = ((quants[:, 1] - y_test_scaled[:, 1]) / y_test_scaled[:, 1] * 100 - 100)
@@ -284,7 +283,7 @@ def train(hyperparams, debug=False):
         # Make plots comparing learned parameters to the actual ones.
         fig_compare, axes = plot_utils. \
             inferer_plot_comparison_including_vsweep(sess, X, X_test[0:batch_size], X_mean,
-                                                     X_ptp, output,
+                                                     X_ptp, infer_output,
                                                      y_mean, y_ptp, hyperparams)
         wandb.log({"comaprison_plot": fig_compare}, step=epoch)
         fig_compare.savefig("plots/fig-{}/compare".format(now))
@@ -296,7 +295,7 @@ def train(hyperparams, debug=False):
         # Make plots of the histograms of the learned sweep parameters.
         # The conversion that WandB does to plotly really sucks.
         fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test[0:batch_size], X,
-                                                                 output, hyperparams)
+                                                                 infer_output, hyperparams)
         wandb.log({"hist_plot": fig_hist}, step=epoch)
         fig_hist.savefig("plots/fig-{}/hist".format(now))
 
@@ -313,25 +312,25 @@ def train(hyperparams, debug=False):
 
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 500,
-                   # 'size_l1': 50,
-                   # 'size_l2': 50,
+                   'size_l1': 50,
+                   'size_l2': 50,
                    'size_lh': 20,
-                   # 'size_li': 10,
+                   'size_li': 10,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-5,
+                   'learning_rate': 5e-6,
                    'momentum': 0.99,
                    'l2_scale': 0.1,
-                   'batch_size': 2048,
+                   'batch_size': 1048,
                    # Data paramters
-                   'num_examples': 2 ** 18,
+                   'num_examples': 2 ** 16,  # There are 16320 real traces.
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,  # This is actually unused lol.
-                   # Augmentaiton parameters
+                   # Augmentaiton parameters (for synthetic traces)
                    'offset_scale': 0.0,
                    'noise_scale': 0.4,
                    # Training info
-                   'steps': 2000,
+                   'steps': 10000,
                    'seed': 42,
     }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)

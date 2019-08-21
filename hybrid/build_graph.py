@@ -37,7 +37,9 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
             layer3_activation = tf.nn.elu(batch_norm(layer3))
             layer4 = dense_layer(layer3_activation, size_l1, name="layer4")
             layer4_activation = tf.nn.elu(batch_norm(layer4))
-            ae_output = tf.identity(layer4_activation, name="output")
+            layerout = dense_layer(layer4_activation, hyperparams['n_inputs'] * 2, name="layerout")
+            layerout_activation = tf.nn.elu(batch_norm(layerout))
+            ae_output = tf.identity(layerout_activation, name="output")
 
         # Inference branch
         with tf.name_scope("infer"):
@@ -48,23 +50,38 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
             infer_output = tf.identity(infer_output_layer_activation, name="output")
 
     with tf.name_scope("loss"):
-        infer_loss_base = tf.nn.l2_loss(output - y, name="infer_loss_base")
-        infer_loss_reg = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.REGULARIZATION_LOSSES)
-        infer_loss_total = tf.add_n([infer_loss_base] + infer_loss_reg, name="loss_total")
+        with tf.name_scope("ae"):
+            ae_loss_base = tf.nn.l2_loss(ae_output - X, name="loss_base")
+            ae_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            ae_loss_total = tf.add_n([ae_loss_base] + ae_loss_reg, name="loss_total")
+        with tf.name_scope("infer"):
+            infer_loss_base = tf.nn.l2_loss(infer_output - y, name="loss_base")
+            infer_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            infer_loss_total = tf.add_n([infer_loss_base] + infer_loss_reg, name="loss_total")
 
     with tf.name_scope("train"):
-        optimizer = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
+        ae_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
+                                                      hyperparams['momentum'], use_nesterov=True)
+        infer_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                          hyperparams['momentum'], use_nesterov=True)
 
-        # if not debug:
-        #     training_op = optimizer.minimize(loss_total)
-        #     return training_op, X, y, training, output, loss_total
-        # else:
-        #     grads = optimizer.compute_gradients(loss_total)
-        #     training_op = optimizer.apply_gradients(grads)
-        #     return training_op, X, y, training, output, loss_total, grads
+        if not debug:
+            ae_training_op = ae_opt.minimize(ae_loss_total)
+            infer_training_op = infer_opt.minimize(infer_loss_total)
+
+            return (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
+                    ae_loss_total, infer_loss_total)
+        else:
+            ae_grads = ae_opt.compute_gradients(ae_loss_total)
+            infer_grads = infer_opt.compute_gradients(infer_loss_total)
+            ae_training_op = ae_opt.apply_gradients(ae_grads)
+            infer_training_op = infer_opt.apply_gradients(infer_grads)
+
+            return (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
+                    ae_loss_total, infer_loss_total, ae_grads, infer_grads)
 
 
+'''
 def make_conv_nn(hyperparams, size_output=3, debug=False):
     with tf.name_scope("data"):
         X = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2], name="X")
@@ -117,9 +134,8 @@ def make_conv_nn(hyperparams, size_output=3, debug=False):
         layer_h0 = dense_layer(layer_pool2, name="layer_h0", hyperparams['size_lh'])
         layer_h0_activation = tf.nn.elu(batch_norm(layer_h0))
 
-        with tf.name_scope("deconv"):
-            layer_deconv0 = deconv_layer(input = )
-
+        # with tf.name_scope("deconv"):
+        #     layer_deconv0 = deconv_layer(input = )
 
         pool_flattened = tf.reshape(WWWWWWWW, [-1, 1 * min_conv_size * 5])
         output_layer = dense_layer(pool_flattened, size_output, name="output_layer")
@@ -142,3 +158,4 @@ def make_conv_nn(hyperparams, size_output=3, debug=False):
             grads = optimizer.compute_gradients(loss_total)
             training_op = optimizer.apply_gradients(grads)
             return training_op, X, y, training, output, loss_total, grads
+'''
