@@ -78,9 +78,9 @@ def gather_random_synthetic_scaled_data(hyperparams):
     size = hyperparams['num_examples']
 
     ne_range = np.array([1e15, 1e18])
-    Vp_range = np.array([1, 50])
+    Vp_range = np.array([1, 20])
     e = 1.602e-19  # Elementary charge
-    Te_range = np.array([0.01, 5]) * e  # We're defining it in terms of eV because it's comfortable.
+    Te_range = np.array([0.05, 5]) * e  # We're defining it in terms of eV because it's comfortable.
     S = 2e-6  # Probe area in m^2
 
     # Voltages used when collecting real sweeps are within this range.
@@ -170,21 +170,16 @@ def train(hyperparams, debug=False):
         # X_test = preprocess.add_noise(X_test, hyperparams, epoch=0)
         X_test = preprocess.add_real_noise(X_test, hyperparams, epoch=0)
 
-        # X_train_aug = X_train
-        for epoch in range(hyperparams['steps']):
-            if epoch == 0:
-                # Augment data each epoch.
-                # Apply random offset to learn invariance.
-                X_train_aug = preprocess.add_offset(X_train, hyperparams, epoch=epoch)
-                # Apply noise.
-                # X_train_aug = preprocess.add_noise(X_train_aug, hyperparams, epoch=epoch)
-                X_train_aug = preprocess.add_real_noise(X_train_aug, hyperparams, epoch=epoch)
+        # Apply random offset to learn invariance.
+        X_train_aug = preprocess.add_offset(X_train, hyperparams, epoch=0)
+        # Apply noise.
+        # X_train_aug = preprocess.add_noise(X_train_aug, hyperparams, epoch=epoch)
+        X_train_aug = preprocess.add_real_noise(X_train_aug, hyperparams, epoch=0)
 
+        for epoch in range(hyperparams['steps']):
             for i in range(X_train_aug.shape[0] // batch_size):
-                X_batch = X_train_aug[i * batch_size:
-                                      (i + 1) * batch_size]
-                y_batch = y_train[i * batch_size:
-                                  (i + 1) * batch_size]
+                X_batch = X_train_aug[i * batch_size:(i + 1) * batch_size]
+                y_batch = y_train[i * batch_size:(i + 1) * batch_size]
                 sess.run([training_op, extra_update_ops],
                          feed_dict={X: X_batch, y: y_batch, training: True})
                 if i == 0 and epoch % 10 == 0 and debug:
@@ -314,18 +309,19 @@ def train(hyperparams, debug=False):
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 500,
                    'scale': 0.1,
-                   'learning_rate': 1e-5,
+                   'learning_rate': 1e-6,
                    'momentum': 0.99,
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,  # This is actually unused lol.
                    'num_examples': 2 ** 18,
-                   'batch_size': 2048,
+                   'batch_size': 4096,
                    'steps': 2000,
                    'seed': 42,
                    'offset_scale': 0.0,
                    'noise_scale': 0.4,
-                   'size_l1': 'N/A',
-                   'size_l2': 'N/A'}
+                   # 'size_l1': 'N/A,
+                   # 'size_l2': 'N/A',
+                   }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams, debug=True)
