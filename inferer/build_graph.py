@@ -74,30 +74,34 @@ def make_conv_nn(hyperparams, size_output=3, debug=False):
     batch_norm = partial(tf.layers.batch_normalization, training=training,
                          momentum=hyperparams['momentum'])
 
-    # size_l1 = hyperparams['size_l1']
-    # size_l2 = hyperparams['size_l2']
     # size_ouput = 3 (default)
 
     with tf.name_scope("nn"):
-        layer_conv0 = conv_layer(X_reshaped, name="layer_conv0", filters=64, kernel_size=(2, 5),
+        layer_conv0 = conv_layer(X_reshaped, name="layer_conv0", filters=32, kernel_size=(2, 5),
                                  strides=(1, 1))
-        layer_conv0_activation = tf.nn.elu(batch_norm(layer_conv0), name="layer_con0_activation")
+        layer_conv0_activation = tf.nn.elu(batch_norm(layer_conv0))
         layer_pool0 = pool_layer(layer_conv0_activation, name="layer_poo0", pool_size=(1, 5),
                                  strides=(1, 1))
 
-        layer_conv1 = conv_layer(layer_pool0, name="layer_conv1", filters=5, kernel_size=(1, 10),
-                                 strides=(1, 5))
+        layer_conv1 = conv_layer(layer_pool0, name="layer_conv1", filters=5, kernel_size=(1, 5),
+                                 strides=(1, 1))
         layer_conv1_activation = tf.nn.elu(batch_norm(layer_conv1))
-        layer_pool1 = pool_layer(layer_conv1_activation, name="layer_conv1", pool_size=(1, 10),
-                                 strides=(1, 5))
+        layer_pool1 = pool_layer(layer_conv1_activation, name="layer_conv1", pool_size=(1, 5),
+                                 strides=(1, 1))
 
-        # layer1 = dense_layer(layer_conv, size_l1, name="layer1")
-        # layer1_activation = tf.nn.elu(batch_norm(layer1))
+        layer_conv2 = conv_layer(layer_pool1, name="layer_conv2", filters=5, kernel_size=(1, 5),
+                                 strides=(1, 1))
+        layer_conv2_activation = tf.nn.elu(batch_norm(layer_conv2))
+        layer_pool2 = pool_layer(layer_conv2_activation, name="layer_pool2", pool_size=(1, 5),
+                                 strides=(1, 1))
 
-        # layer2 = dense_layer(layer1_activation, size_l2, name="layer2")
-        # layer2_activation = tf.nn.elu(batch_norm(layer2))
-        pool_flattened = tf.reshape(layer_pool1, [-1, 1 * 18 * 5])
+        layer_conv3 = conv_layer(layer_pool2, name="layer_conv3", filters=5, kernel_size=(1, 5),
+                                 strides=(1, 1))
+        layer_conv3_activation = tf.nn.elu(batch_norm(layer_conv3))
+        layer_pool3 = pool_layer(layer_conv3_activation, name="layer_pool3", pool_size=(1, 5),
+                                 strides=(1, 1))
 
+        pool_flattened = tf.reshape(layer_pool3, [-1, 1 * 468 * 5])
         output_layer = dense_layer(pool_flattened, size_output, name="output_layer")
         output_layer_activation = tf.nn.elu(batch_norm(output_layer))
         output = tf.identity(output_layer_activation, name="output")
