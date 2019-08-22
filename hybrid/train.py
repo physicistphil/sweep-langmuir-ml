@@ -231,7 +231,13 @@ def train(hyperparams, debug=False):
                                                              X_mean, X_ptp, infer_output,
                                                              y_mean, y_ptp, hyperparams)
                 # wandb.log({"comaprison_plot": fig_compare}, step=epoch)
-                fig_compare.savefig("plots/fig-{}/compare-epoch-{}".format(now, epoch))
+                fig_compare.savefig("plots/fig-{}/infer_compare-epoch-{}".format(now, epoch))
+
+                fig_compare_ae, axes_ae = plot_utils. \
+                    autoencoder_plot_comparison(sess, data_test[0:batch_size], X, ae_output,
+                                                hyperparams, y)
+                fig_compare_ae.savefig("plots/fig-{}/ae_compare-epoch-{}".format(now, epoch))
+
                 # Make plots of the histograms of the learned sweep parameters.
                 fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test[0:batch_size],
                                                                          X, infer_output,
@@ -285,8 +291,13 @@ def train(hyperparams, debug=False):
             inferer_plot_comparison_including_vsweep(sess, X, X_test[0:batch_size], X_mean,
                                                      X_ptp, infer_output,
                                                      y_mean, y_ptp, hyperparams)
-        wandb.log({"comaprison_plot": fig_compare}, step=epoch)
-        fig_compare.savefig("plots/fig-{}/compare".format(now))
+        wandb.log({"infer_comaprison_plot": fig_compare}, step=epoch)
+        fig_compare.savefig("plots/fig-{}/infer_compare".format(now))
+
+        fig_compare_ae, axes_ae = plot_utils. \
+            autoencoder_plot_comparison(sess, data_test[0:batch_size], X, ae_output, hyperparams, y)
+        wandb.log({"ae_comaprison_plot": fig_compare}, step=epoch)
+        fig_compare_ae.savefig("plots/fig-{}/ae_compare".format(now))
 
         # Show the worst performing fits (may not implement this).
         # fig_worst, axes = plot_utils.plot_worst(sess, X_train, X, output, hyperparams)
@@ -317,7 +328,7 @@ if __name__ == '__main__':
                    'size_lh': 20,
                    'size_li': 10,
                    # Optimization hyperparamters
-                   'learning_rate': 5e-6,
+                   'learning_rate': 1e-6,
                    'momentum': 0.99,
                    'l2_scale': 0.1,
                    'batch_size': 1048,
@@ -330,7 +341,7 @@ if __name__ == '__main__':
                    'offset_scale': 0.0,
                    'noise_scale': 0.4,
                    # Training info
-                   'steps': 10000,
+                   'steps': 2000,
                    'seed': 42,
     }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
