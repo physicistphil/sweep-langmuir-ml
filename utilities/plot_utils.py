@@ -8,14 +8,23 @@ sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/simulator')
 import generate
 
 
-def autoencoder_plot_comparison(sess, data_test, X, output, hyperparams):
-    output_test = output.eval(session=sess, feed_dict={X: data_test})
+def autoencoder_plot_comparison(sess, data_test, X, output, hyperparams, y=None):
+    n_inputs = hyperparams['n_inputs']
+    size = data_test.shape[0]
+
+    if y is None:
+        output_test = output.eval(session=sess, feed_dict={X: data_test})
+    else:
+        # Chop off first half of series so that only traces are generated.
+        output_test = output.eval(session=sess,
+                                  feed_dict={X: data_test,
+                                             y: np.zeros((size, 3))})
 
     fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
     fig.suptitle('Comparison of test set and reconstruction')
 
     np.random.seed(hyperparams['seed'])
-    randidx = np.random.randint(data_test.shape[0], size=(3, 4))
+    randidx = np.random.randint(size, size=(3, 4))
 
     for x, y in np.ndindex((3, 4)):
         axes[x, y].plot(data_test[randidx[x, y]], label="Input")
