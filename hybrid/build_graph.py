@@ -4,7 +4,7 @@ from functools import partial
 
 # This model is untested, unused, and unloved :(
 def make_small_nn(hyperparams, size_output=3, debug=False):
-    with tf.name_scope("data"):
+    with tf.variable_scope("data"):
         X = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2], name="X")
         y = tf.compat.v1.placeholder(tf.float32, [None, size_output], name="y")
         training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
@@ -22,8 +22,8 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
     size_li = hyperparams['size_li']
     # size_ouput = 3 (default)
 
-    with tf.name_scope("nn"):
-        with tf.name_scope("base"):
+    with tf.variable_scope("nn"):
+        with tf.variable_scope("base"):
             layer1 = dense_layer(X, size_l1, name="layer1")
             layer1_activation = tf.nn.elu(batch_norm(layer1))
             layer2 = dense_layer(layer1_activation, size_l2, name="layer2")
@@ -32,7 +32,7 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
             layerh_activation = tf.nn.elu(batch_norm(layerh))
 
         # Autoencoding branch
-        with tf.name_scope("ae"):
+        with tf.variable_scope("ae"):
             layer3 = dense_layer(layerh_activation, size_l2, name="layer3")
             layer3_activation = tf.nn.elu(batch_norm(layer3))
             layer4 = dense_layer(layer3_activation, size_l1, name="layer4")
@@ -42,38 +42,44 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
             ae_output = tf.identity(layerout_activation, name="output")
 
         # Inference branch
-        with tf.name_scope("infer"):
+        with tf.variable_scope("infer"):
             layeri = dense_layer(layerh_activation, size_li, name="layeri")
             layeri_activation = tf.nn.elu(batch_norm(layeri))
             infer_output_layer = dense_layer(layeri_activation, size_output, name="output_layer")
             infer_output_layer_activation = tf.nn.elu(batch_norm(infer_output_layer))
             infer_output = tf.identity(infer_output_layer_activation, name="output")
 
-    with tf.name_scope("loss"):
-        with tf.name_scope("ae"):
+    with tf.variable_scope("loss"):
+        with tf.variable_scope("ae"):
             ae_loss_base = tf.nn.l2_loss(ae_output - X, name="loss_base")
             ae_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             ae_loss_total = tf.add_n([ae_loss_base] + ae_loss_reg, name="loss_total")
-        with tf.name_scope("infer"):
+        with tf.variable_scope("infer"):
             infer_loss_base = tf.nn.l2_loss(infer_output - y, name="loss_base")
             infer_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             infer_loss_total = tf.add_n([infer_loss_base] + infer_loss_reg, name="loss_total")
 
-    with tf.name_scope("train"):
+    with tf.variable_scope("train"):
         ae_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                       hyperparams['momentum'], use_nesterov=True)
+
+        # If we want to freeze the autoencoder while training, only train on infer-scoped variables
+        if hyperparams['freeze_ae']:
+            infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=".+(infer).+")
+        else:
+            infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
         infer_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                          hyperparams['momentum'], use_nesterov=True)
 
         if not debug:
             ae_training_op = ae_opt.minimize(ae_loss_total)
-            infer_training_op = infer_opt.minimize(infer_loss_total)
+            infer_training_op = infer_opt.minimize(infer_loss_total, infer_vars)
 
             return (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
                     ae_loss_total, infer_loss_total)
         else:
             ae_grads = ae_opt.compute_gradients(ae_loss_total)
-            infer_grads = infer_opt.compute_gradients(infer_loss_total)
+            infer_grads = infer_opt.compute_gradients(infer_loss_total, infer_vars)
             ae_training_op = ae_opt.apply_gradients(ae_grads)
             infer_training_op = infer_opt.apply_gradients(infer_grads)
 

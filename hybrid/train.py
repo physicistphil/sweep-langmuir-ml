@@ -159,39 +159,45 @@ def train(hyperparams, debug=False):
         X_train_aug = preprocess.add_real_noise(X_train_aug, hyperparams, epoch=0)
         for epoch in range(hyperparams['steps']):
 
-            # Train the autoencoder.
-            for i in range(data_train.shape[0] // batch_size):
-                data_batch = data_train[i * batch_size:(i + 1) * batch_size]
-                sess.run([ae_training_op, extra_update_ops],
-                         feed_dict={X: data_batch, y: np.zeros((batch_size, 3)), training: True})
-                if i == 0 and epoch % 10 == 0 and debug:
-                    summary = sess.run(summaries_op,
-                                       feed_dict={X: data_train[0:batch_size],
-                                                  y: np.zeros((batch_size, 3)), training: True})
-                    summary_writer.add_summary(summary, epoch)
-            if (data_train.shape[0] % batch_size) != 0:
-                data_batch = data_train[(i + 1) * batch_size:]
-                sess.run([ae_training_op, extra_update_ops],
-                         feed_dict={X: data_batch, y: np.zeros((batch_size, 3)), training: True})
+            # Alternate training between autoencoder and inferer.
+            if epoch % (hyperparams['switch_num'] * 2) < hyperparams['switch_num']:
+                # Train the autoencoder.
+                for i in range(data_train.shape[0] // batch_size):
+                    data_batch = data_train[i * batch_size:(i + 1) * batch_size]
+                    sess.run([ae_training_op, extra_update_ops],
+                             feed_dict={X: data_batch, y: np.zeros((batch_size, 3)),
+                                        training: True})
+                    if i == 0 and epoch % 10 == 0 and debug:
+                        summary = sess.run(summaries_op,
+                                           feed_dict={X: data_train[0:batch_size],
+                                                      y: np.zeros((batch_size, 3)),
+                                                      training: True})
+                        summary_writer.add_summary(summary, epoch)
+                if (data_train.shape[0] % batch_size) != 0:
+                    data_batch = data_train[(i + 1) * batch_size:]
+                    sess.run([ae_training_op, extra_update_ops],
+                             feed_dict={X: data_batch, y: np.zeros((batch_size, 3)),
+                                        training: True})
 
-            # Train the inferer.
-            for i in range(X_train_aug.shape[0] // batch_size):
-                X_batch = X_train_aug[i * batch_size:
+            else:
+                # Train the inferer.
+                for i in range(X_train_aug.shape[0] // batch_size):
+                    X_batch = X_train_aug[i * batch_size:
+                                          (i + 1) * batch_size]
+                    y_batch = y_train[i * batch_size:
                                       (i + 1) * batch_size]
-                y_batch = y_train[i * batch_size:
-                                  (i + 1) * batch_size]
-                sess.run([infer_training_op, extra_update_ops],
-                         feed_dict={X: X_batch, y: y_batch, training: True})
-                if i == 0 and epoch % 10 == 0 and debug:
-                    summary = sess.run(summaries_op,
-                                       feed_dict={X: X_train_aug[0:batch_size],
-                                                  y: y_train[0:batch_size], training: True})
-                    summary_writer.add_summary(summary, epoch)
-            if (X_train_aug.shape[0] % batch_size) != 0:
-                X_batch = X_train_aug[(i + 1) * batch_size:]
-                y_batch = y_train[(i + 1) * batch_size:]
-                sess.run([infer_training_op, extra_update_ops],
-                         feed_dict={X: X_batch, y: y_batch, training: True})
+                    sess.run([infer_training_op, extra_update_ops],
+                             feed_dict={X: X_batch, y: y_batch, training: True})
+                    if i == 0 and epoch % 10 == 0 and debug:
+                        summary = sess.run(summaries_op,
+                                           feed_dict={X: X_train_aug[0:batch_size],
+                                                      y: y_train[0:batch_size], training: True})
+                        summary_writer.add_summary(summary, epoch)
+                if (X_train_aug.shape[0] % batch_size) != 0:
+                    X_batch = X_train_aug[(i + 1) * batch_size:]
+                    y_batch = y_train[(i + 1) * batch_size:]
+                    sess.run([infer_training_op, extra_update_ops],
+                             feed_dict={X: X_batch, y: y_batch, training: True})
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
@@ -327,11 +333,13 @@ if __name__ == '__main__':
                    'size_l2': 50,
                    'size_lh': 20,
                    'size_li': 10,
+                   'switch_num': 200,  # Number of epochs to train ae or inferer before switching
+                   'freeze_ae': True,
                    # Optimization hyperparamters
                    'learning_rate': 1e-6,
                    'momentum': 0.99,
                    'l2_scale': 0.1,
-                   'batch_size': 1048,
+                   'batch_size': 1024,
                    # Data paramters
                    'num_examples': 2 ** 16,  # There are 16320 real traces.
                    'frac_train': 0.6,
@@ -343,6 +351,6 @@ if __name__ == '__main__':
                    # Training info
                    'steps': 2000,
                    'seed': 42,
-    }
+                   }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams, debug=True)
