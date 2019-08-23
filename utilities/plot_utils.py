@@ -9,7 +9,6 @@ import generate
 
 
 def autoencoder_plot_comparison(sess, data_test, X, output, hyperparams, y=None):
-    n_inputs = hyperparams['n_inputs']
     size = data_test.shape[0]
 
     if y is None:
