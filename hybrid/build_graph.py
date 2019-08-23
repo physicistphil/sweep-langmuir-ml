@@ -63,9 +63,12 @@ def make_small_nn(hyperparams, size_output=3, debug=False):
         ae_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                       hyperparams['momentum'], use_nesterov=True)
 
-        # If we want to freeze the autoencoder while training, only train on infer-scoped variables
+        # If we want to freeze the autoencoder while training, only train on infer-scoped variables.
+        # We also want to train the batch normalization terms so that the distribution of the
+        #   synthetic traces can be capture in the first part of the autoencoder network.
         if hyperparams['freeze_ae']:
-            infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=".+(infer).+")
+            infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                           scope=".+(batch_normalization).+|.+(infer).+")
         else:
             infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
         infer_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
