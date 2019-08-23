@@ -106,6 +106,7 @@ def train(hyperparams, debug=False):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     wandb.log({"now": now}, step=0)
     os.mkdir("plots/fig-{}".format(now))
+    fig_path = "plots/fig-{}/".format(now)
 
     # Gather all the data
     data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
@@ -219,9 +220,19 @@ def train(hyperparams, debug=False):
                                    batch_size)
                 wandb.log({'infer_loss_train': infer_loss_train,
                            'infer_loss_test': infer_loss_test}, step=epoch)
-                print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
+                ae_loss_train = (ae_loss_total.eval(feed_dict={X: data_train[0:batch_size],
+                                                               y: np.zeros((batch_size, 3))}) /
+                                 batch_size)
+                ae_loss_test = (ae_loss_total.eval(feed_dict={X: data_test[0:batch_size],
+                                                              y: np.zeros((batch_size, 3))}) /
+                                batch_size)
+                wandb.log({'ae_loss_train': ae_loss_train,
+                           'ae_loss_test': ae_loss_test}, step=epoch)
+
+                print(("Epoch {:5}\tT: {} \ti_tr: {:.3e}\ti_te: {:.3e} " +
+                       "\ta_tr: {:.3e}\ta_te: {:.3e}")
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
-                              infer_loss_train, infer_loss_test))
+                              infer_loss_train, infer_loss_test, ae_loss_train, ae_loss_test))
 
                 if infer_loss_test < infer_best_loss:
                     infer_best_loss = infer_loss_test
@@ -237,19 +248,19 @@ def train(hyperparams, debug=False):
                                                              X_mean, X_ptp, infer_output,
                                                              y_mean, y_ptp, hyperparams)
                 # wandb.log({"comaprison_plot": fig_compare}, step=epoch)
-                fig_compare.savefig("plots/fig-{}/infer_compare-epoch-{}".format(now, epoch))
+                fig_compare.savefig(fig_path + "infer_compare-epoch-{}".format(epoch))
 
                 fig_compare_ae, axes_ae = plot_utils. \
                     autoencoder_plot_comparison(sess, data_test[0:batch_size], X, ae_output,
                                                 hyperparams, y)
-                fig_compare_ae.savefig("plots/fig-{}/ae_compare-epoch-{}".format(now, epoch))
+                fig_compare_ae.savefig(fig_path + "ae_compare-epoch-{}".format(epoch))
 
                 # Make plots of the histograms of the learned sweep parameters.
                 fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test[0:batch_size],
                                                                          X, infer_output,
                                                                          hyperparams)
                 # wandb.log({"hist_plot": fig_hist}, step=epoch)
-                fig_hist.savefig("plots/fig-{}/hist-epoch-{}".format(now, epoch))
+                fig_hist.savefig(fig_path + "hist-epoch-{}".format(epoch))
                 # Close all the figures so that memory can be freed.
                 plt.close('all')
 
@@ -269,15 +280,28 @@ def train(hyperparams, debug=False):
 
         # ---------------------- Log results ---------------------- #
         # calculate loss
-        infer_loss_train = infer_loss_total.eval(feed_dict={X: X_train_aug[0:batch_size],
-                                                            y: y_train[0:batch_size]}) / batch_size
-        infer_loss_test = infer_loss_total.eval(feed_dict={X: X_test[0:batch_size],
-                                                           y: y_test[0:batch_size]}) / batch_size
-        print("Epoch {:5}\tWall: {} \tTraining: {:.4e}\tTesting: {:.4e}"
+        infer_loss_train = (infer_loss_total.eval(feed_dict={X: X_train_aug[0:batch_size],
+                                                             y: y_train[0:batch_size]}) /
+                            batch_size)
+        infer_loss_test = (infer_loss_total.eval(feed_dict={X: X_test[0:batch_size],
+                                                            y: y_test[0:batch_size]}) /
+                           batch_size)
+        wandb.log({'infer_loss_train': infer_loss_train,
+                   'infer_loss_test': infer_loss_test}, step=epoch)
+        ae_loss_train = (ae_loss_total.eval(feed_dict={X: data_train[0:batch_size],
+                                                       y: np.zeros((batch_size, 3))}) /
+                         batch_size)
+        ae_loss_test = (ae_loss_total.eval(feed_dict={X: data_test[0:batch_size],
+                                                      y: np.zeros((batch_size, 3))}) /
+                        batch_size)
+        wandb.log({'ae_loss_train': ae_loss_train,
+                   'ae_loss_test': ae_loss_test}, step=epoch)
+
+        print(("Epoch {:5}\tT: {} \ti_tr: {:.3e}\ti_te: {:.3e} " +
+               "\ta_tr: {:.3e}\ta_te: {:.3e}")
               .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
-                      infer_loss_train, infer_loss_test))
-        wandb.log({'infer_loss_train': infer_loss_train, 'infer_loss_test': infer_loss_test},
-                  step=epoch)
+                      infer_loss_train, infer_loss_test, ae_loss_train, ae_loss_test))
+
         saver.save(sess, "./saved_models/model-{}-final.ckpt".format(now))
 
         # Calculate RMS percent error of quantities. Quants output order is: ne, Vp, Te.
@@ -292,29 +316,30 @@ def train(hyperparams, debug=False):
         wandb.log({'RMS_pct_ne': np.std(per_ne), 'RMS_pct_Vp': np.std(per_Vp),
                    'RMS_pct_Te': np.std(per_Te)}, step=epoch)
 
+        # ---------------------- Make figures ---------------------- #
         # Make plots comparing learned parameters to the actual ones.
         fig_compare, axes = plot_utils. \
             inferer_plot_comparison_including_vsweep(sess, X, X_test[0:batch_size], X_mean,
                                                      X_ptp, infer_output,
                                                      y_mean, y_ptp, hyperparams)
-        wandb.log({"infer_comaprison_plot": fig_compare}, step=epoch)
-        fig_compare.savefig("plots/fig-{}/infer_compare".format(now))
+        fig_compare.savefig(fig_path + "infer_compare".format(now))
+        wandb.log({"infer_comaprison_plot": [wandb.Image(fig_compare)]}, step=epoch)
 
         fig_compare_ae, axes_ae = plot_utils. \
             autoencoder_plot_comparison(sess, data_test[0:batch_size], X, ae_output, hyperparams, y)
-        wandb.log({"ae_comaprison_plot": fig_compare}, step=epoch)
-        fig_compare_ae.savefig("plots/fig-{}/ae_compare".format(now))
+        fig_compare_ae.savefig(fig_path + "ae_compare".format(now))
+        wandb.log({"ae_comaprison_plot": [wandb.Image(fig_compare_ae)]}, step=epoch)
 
         # Show the worst performing fits (may not implement this).
         # fig_worst, axes = plot_utils.plot_worst(sess, X_train, X, output, hyperparams)
         # fig_worst.savefig("plots/fig-{}/worst".format(now))
 
         # Make plots of the histograms of the learned sweep parameters.
-        # The conversion that WandB does to plotly really sucks.
+        # The conversion that WandB does to plotly really sucks, so I'll use PIL for PNGs
         fig_hist, axes_hist = plot_utils.inferer_plot_quant_hist(sess, X_test[0:batch_size], X,
                                                                  infer_output, hyperparams)
-        wandb.log({"hist_plot": fig_hist}, step=epoch)
-        fig_hist.savefig("plots/fig-{}/hist".format(now))
+        fig_hist.savefig(fig_path + "hist".format(now))
+        wandb.log({"hist_plot": [wandb.Image(fig_hist)]}, step=epoch)
 
         # Log tensorflow checkpoints (takes up a lot of space).
         # final_checkpoint_name = "./saved_models/model-{}-final.ckpt".format(now)
