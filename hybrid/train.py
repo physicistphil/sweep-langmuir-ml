@@ -40,7 +40,7 @@ def get_real_data(hyperparams):
     data_mean = np.concatenate((vsweep_mean, current_mean))
     data_ptp = np.concatenate((vsweep_ptp, current_ptp))
 
-    # Voltage and current sweeps are already concatendated.
+    # Voltage and current sweeps are already concatenated.
     # Centering and scaling the input so that it's easier to train.
     data = (signal - data_mean) / data_ptp
     data_train, data_test, data_valid = preprocess.shuffle_split_data(data, hyperparams)
@@ -58,7 +58,7 @@ def gather_random_synthetic_scaled_data(hyperparams):
     ne_range = np.array([1e15, 1e18])
     Vp_range = np.array([1, 20])
     e = 1.602e-19  # Elementary charge
-    Te_range = np.array([0.05, 5]) * e  # We're defining it in terms of eV because it's comfortable.
+    Te_range = np.array([0.5, 5]) * e  # We're defining it in terms of eV because it's comfortable.
     S = 2e-6  # Probe area in m^2
 
     # Voltages used when collecting real sweeps are within this range.
@@ -358,7 +358,7 @@ if __name__ == '__main__':
                    'size_l2': 50,
                    'size_lh': 20,
                    'size_li': 10,
-                   'switch_num': 200,  # Number of epochs to train ae or inferer before switching
+                   'switch_num': 1,  # Number of epochs to train ae or inferer before switching
                    'freeze_ae': True,
                    # Optimization hyperparamters
                    'learning_rate': 1e-6,
@@ -370,7 +370,7 @@ if __name__ == '__main__':
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,  # This is actually unused lol.
-                   # Augmentaiton parameters (for synthetic traces)
+                   # Augmentation parameters (for synthetic traces)
                    'offset_scale': 0.0,
                    'noise_scale': 0.4,
                    # Training info
