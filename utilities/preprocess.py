@@ -68,6 +68,8 @@ def get_mirror_data_with_sweeps(input_size):
         data_trace = -data_trace
         # Remove the offset of the traces by averaging the first 10 points and subtracting it.
         data_trace -= np.mean(data_trace[:, 0:10], axis=1)[:, np.newaxis]
+        # Remove the spiky bit after the sweep is turned off.
+        data_trace[np.where(data_trace < -0.02)] = 0
         # Divide by the resistor value (11 ohms) to get the trace current.
         data_trace = data_trace / 11.0
         # Merge the sweep and trace together like we do for the synthetic sweeps.
