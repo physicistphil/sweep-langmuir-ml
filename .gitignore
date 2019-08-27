@@ -114,6 +114,7 @@ venv.bak/
 */saved_models/
 # plots
 */plots/
+*/comparison_plots/
 # summaries
 */summaries/
 */summary_archive/
