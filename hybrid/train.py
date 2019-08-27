@@ -120,7 +120,7 @@ def train(hyperparams, debug=False):
     else:
         (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
          ae_loss_total, infer_loss_total,
-         ae_grads, infer_grads) = build_graph.make_small_nn(hyperparams, size_output=3, debug=debug)
+         ae_grads, infer_grads) = build_graph.make_conv_nn(hyperparams, size_output=3, debug=debug)
 
         for grad, var in ae_grads:
             if grad is not None and var is not None:
@@ -354,10 +354,10 @@ def train(hyperparams, debug=False):
 
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 500,
-                   'size_l1': 50,
-                   'size_l2': 50,
-                   'size_lh': 20,
-                   'size_li': 10,
+                   # 'size_l1': 50,
+                   # 'size_l2': 50,
+                   # 'size_lh': 20,
+                   # 'size_li': 10,
                    'switch_num': 1,  # Number of epochs to train ae or inferer before switching
                    'freeze_ae': True,
                    # Optimization hyperparamters

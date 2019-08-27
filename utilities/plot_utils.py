@@ -8,16 +8,20 @@ sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/simulator')
 import generate
 
 
-def autoencoder_plot_comparison(sess, data_test, X, output, hyperparams, y=None):
+def autoencoder_plot_comparison(sess, data_test, X, output, hyperparams, y_in=None):
     size = data_test.shape[0]
 
-    if y is None:
+    if y_in is None:
         output_test = output.eval(session=sess, feed_dict={X: data_test})
     else:
         # Chop off first half of series so that only traces are generated.
         output_test = output.eval(session=sess,
                                   feed_dict={X: data_test,
-                                             y: np.zeros((size, 3))})
+                                             y_in: np.zeros((size, 3))})
+
+    # Reshape in case our data is 2d (which would be the case for a convolutional autoencoder)
+    data_test = np.reshape(data_test, (size, -1))
+    output_test = np.reshape(output_test, (size, -1))
 
     fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
     fig.suptitle('Comparison of test set and reconstruction')
