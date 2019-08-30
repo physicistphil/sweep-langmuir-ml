@@ -43,7 +43,7 @@ def get_mirror_data_with_sweeps(input_size):
     data_dir = "/home/phil/Desktop/sweeps/data/"
 
     try:
-        dataset = np.load(data_dir + 'data_with_sweeps')['dataset']
+        dataset = np.load(data_dir + 'data_with_sweeps.npz')['dataset']
     except FileNotFoundError:
         f = [lapd.File(data_dir + "09_500G_flat_sweep_vf_correct2.hdf5"),
              lapd.File(data_dir + "10_500G_7to8_750Gother_sweep_vf.hdf5"),
