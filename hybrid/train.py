@@ -55,10 +55,10 @@ def gather_random_synthetic_scaled_data(hyperparams):
     # Number of examples to generate. There are 3264 * 5 real ones from the mirror dataset.
     size = hyperparams['num_examples']
 
-    ne_range = np.array([1e15, 1e18])
-    Vp_range = np.array([1, 20])
+    ne_range = np.array([1e16, 1e18])
+    Vp_range = np.array([0, 20])
     e = 1.602e-19  # Elementary charge
-    Te_range = np.array([0.5, 5]) * e  # We're defining it in terms of eV because it's comfortable.
+    Te_range = np.array([0.5, 10]) * e  # We're defining it in terms of eV because it's comfortable.
     S = 2e-6  # Probe area in m^2
 
     # Voltages used when collecting real sweeps are within this range.
@@ -402,7 +402,8 @@ if __name__ == '__main__':
                    # 'size_l1': 50,
                    # 'size_l2': 50,
                    # 'size_lh': 20,
-                   # 'size_li': 10,
+                   'filters': 1,
+                   'size_li': 50,
                    'switch_num': 1,  # Number of epochs to train ae or inferer before switching
                    'freeze_ae': True,
                    # Optimization hyperparamters
@@ -411,7 +412,7 @@ if __name__ == '__main__':
                    'l2_scale': 0.1,
                    'batch_size': 1024,
                    # Data paramters
-                   'num_examples': 2 ** 16,  # There are 16320 real traces.
+                   'num_examples': 2 ** 14,  # There are 16320 real traces.
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    'frac_valid': 0.2,  # This is actually unused lol.
