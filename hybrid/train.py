@@ -96,10 +96,49 @@ def gather_random_synthetic_scaled_data(hyperparams):
 
 
 # Mix the generated synthetic sweeps and real data and return the combined set.
-# We have 3264 real traces, so we probably want a similar amount of synthetic ones if we want to
+# We have 16320 real traces, so we probably want a similar amount of synthetic ones if we want to
 #   train them on equal footing.
-def gather_mixed_data(experiment, hyperparams):
-    pass
+def gather_mixed_data(hyperparams):
+    print("Getting mixed data...", end=" ")
+    sys.stdout.flush()
+    n_inputs = hyperparams['n_inputs']
+    signal = preprocess.get_mirror_data_with_sweeps(n_inputs)
+
+    # Find the voltage sweep and current means and peak-to-peaks so the model is easier to train.
+    vsweep_mean = np.full(hyperparams['n_inputs'], np.mean(signal[:, 0:n_inputs]))
+    vsweep_ptp = np.full(hyperparams['n_inputs'], np.ptp(signal[:, 0:n_inputs]))
+    current_mean = np.full(hyperparams['n_inputs'], np.mean(signal[:, n_inputs:]))
+    current_ptp = np.full(hyperparams['n_inputs'], np.ptp(signal[:, n_inputs:]))
+    # Combine the two so we have a nice neat X, y, and scalings tuple returned by the function.
+    data_mean = np.concatenate((vsweep_mean, current_mean))
+    data_ptp = np.concatenate((vsweep_ptp, current_ptp))
+
+    # Get synthetic traces.
+    size = hyperparams['num_examples']
+    ne_range = np.array([1e16, 1e18])
+    Vp_range = np.array([0, 20])
+    e = 1.602e-19  # Elementary charge
+    Te_range = np.array([0.5, 10]) * e  # We're defining it in terms of eV because it's comfortable.
+    S = 2e-6  # Probe area in m^2
+    # Voltages used when collecting real sweeps are within this range.
+    vsweep_lower_range = np.array([-50, -20])
+    vsweep_upper_range = np.array([50, 100])
+    ne, Vp, Te, vsweep, current \
+        = generate.generate_random_traces_from_array(ne_range, Vp_range, Te_range,
+                                                     vsweep_lower_range, vsweep_upper_range,
+                                                     hyperparams, size, S=S)
+    # Concatenate synthetic sweep and traces.
+    X = np.concatenate((vsweep, current), axis=1)
+    # Merge real and synthetic datasets
+    data = np.concatenate((signal, X), axis=0)
+
+    # Voltage and current sweeps are already concatenated.
+    # Centering and scaling the input so that it's easier to train.
+    data = (data - data_mean) / data_ptp
+    data_train, data_test, data_valid = preprocess.shuffle_split_data(data, hyperparams)
+    print("Done.")
+
+    return data_train, data_test, data_valid, data_mean, data_ptp
 
 
 def train(hyperparams, debug=False):
@@ -109,9 +148,15 @@ def train(hyperparams, debug=False):
     fig_path = "plots/fig-{}/".format(now)
 
     # Gather all the data
-    data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
+    # data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
+    data_train, data_test, data_valid, data_mean, data_ptp = gather_mixed_data(hyperparams)
     X_train, X_test, X_valid, X_mean, X_ptp, y_train, y_test, y_valid, y_mean, y_ptp \
         = gather_random_synthetic_scaled_data(hyperparams)
+    # data_train = data_test = data_valid = data_mean = data_ptp = \
+        # X_train = X_test = X_valid = X_mean = X_ptp \
+        # = np.ones((1024, 1000))
+    # y_train = y_test = y_valid = y_mean = y_ptp = np.ones((1024, 3))
+
 
     # Build the models to train on.
     if not debug:
