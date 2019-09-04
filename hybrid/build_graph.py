@@ -2,7 +2,6 @@ import tensorflow as tf
 from functools import partial
 
 
-# This model is untested, unused, and unloved :(
 def make_small_nn(hyperparams, size_output=3, debug=False):
     with tf.variable_scope("data"):
         X = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2], name="X")
@@ -100,7 +99,7 @@ def make_conv_nn(hyperparams, size_output=3, debug=False):
     X_reshaped = tf.reshape(X, [-1, 2, hyperparams['n_inputs'], 1])
 
     conv_layer = partial(tf.layers.conv2d,
-                         padding='valid', activation=None,
+                         padding='same', activation=None,
                          kernel_initializer=tf.contrib.layers
                          .variance_scaling_initializer(seed=hyperparams['seed']),
                          kernel_regularizer=tf.contrib.layers
@@ -108,13 +107,13 @@ def make_conv_nn(hyperparams, size_output=3, debug=False):
                          )
 
     upconv_layer = partial(tf.layers.conv2d_transpose,
-                           padding='valid', activation=None,
+                           padding='same', activation=None,
                            kernel_initializer=tf.contrib.layers
                            .variance_scaling_initializer(seed=hyperparams['seed']),
                            kernel_regularizer=tf.contrib.layers
                            .l2_regularizer(hyperparams['l2_scale']))
 
-    pool_layer = partial(tf.layers.max_pooling2d)
+    pool_layer = partial(tf.layers.max_pooling2d, padding='same')
 
     dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
                           .variance_scaling_initializer(seed=hyperparams['seed']),
@@ -123,54 +122,111 @@ def make_conv_nn(hyperparams, size_output=3, debug=False):
     batch_norm = partial(tf.layers.batch_normalization, training=training,
                          momentum=hyperparams['momentum'])
 
-    min_conv_size = 476  # Determinded by the input convolutions.
+    middle_size = 8
+    filters = hyperparams['filters']
+    # min_conv_size = 56  # Determinded by the input convolutions.
     # size_ouput = 3 (default)
 
     with tf.name_scope("nn"):
         with tf.variable_scope("base"):
-            layer_conv0 = conv_layer(X_reshaped, name="layer_conv0", filters=5,
+            layer_conv0 = conv_layer(X_reshaped, name="layer_conv0", filters=filters,
                                      kernel_size=(2, 5), strides=(1, 1))
-            layer_conv0_activation = tf.nn.elu(batch_norm(layer_conv0))
-            layer_pool0 = pool_layer(layer_conv0_activation, name="layer_poo0",
-                                     pool_size=(1, 5), strides=(1, 1))
+            # Just keep middle row (making the height dimension padding 'valid').
+            # We need 1:2 (instaed of just 1) to preserve the dimension.
+            layer_conv0_activation = tf.nn.elu(batch_norm(layer_conv0[:, :, :, :]))
+            layer_pool0 = pool_layer(layer_conv0_activation, name="layer_pool0",
+                                     pool_size=(1, 5), strides=(1, 2))
 
-            layer_conv1 = conv_layer(layer_pool0, name="layer_conv1", filters=5,
-                                     kernel_size=(1, 5), strides=(1, 1))
+            layer_conv1 = conv_layer(layer_pool0, name="layer_conv1", filters=filters,
+                                     kernel_size=(2, 5), strides=(1, 1))
             layer_conv1_activation = tf.nn.elu(batch_norm(layer_conv1))
-            layer_pool1 = pool_layer(layer_conv1_activation, name="layer_conv1",
-                                     pool_size=(1, 5), strides=(1, 1))
+            layer_pool1 = pool_layer(layer_conv1_activation, name="layer_pool1",
+                                     pool_size=(1, 5), strides=(1, 2))
+
+            layer_conv2 = conv_layer(layer_pool1, name="layer_conv2", filters=filters,
+                                     kernel_size=(2, 5), strides=(1, 1))
+            layer_conv2_activation = tf.nn.elu(batch_norm(layer_conv2))
+            layer_pool2 = pool_layer(layer_conv2_activation, name="layer_pool2",
+                                     pool_size=(1, 5), strides=(1, 2))
+
+            layer_conv3 = conv_layer(layer_pool2, name="layer_conv3", filters=filters,
+                                     kernel_size=(2, 5), strides=(1, 1))
+            layer_conv3_activation = tf.nn.elu(batch_norm(layer_conv3))
+            layer_pool3 = pool_layer(layer_conv3_activation, name="layer_pool3",
+                                     pool_size=(1, 5), strides=(1, 2))
+
+            layer_conv4 = conv_layer(layer_pool3, name="layer_conv4", filters=filters,
+                                     kernel_size=(2, 5), strides=(1, 1))
+            layer_conv4_activation = tf.nn.elu(batch_norm(layer_conv4))
+            layer_pool4 = pool_layer(layer_conv4_activation, name="layer_pool4",
+                                     pool_size=(1, 5), strides=(1, 2))
+
+            layer_conv5 = conv_layer(layer_pool4, name="layer_conv5", filters=filters,
+                                     kernel_size=(2, 5), strides=(1, 1))
+            layer_conv5_activation = tf.nn.elu(batch_norm(layer_conv5))
+            layer_pool5 = pool_layer(layer_conv5_activation, name="layer_pool5",
+                                     pool_size=(1, 5), strides=(1, 2))
 
         # Autoencoding branch
         with tf.variable_scope("ae"):
-            ae_upconv2 = upconv_layer(layer_pool1, name="layer_upconv2",
-                                      kernel_size=(1, 5), filters=5, strides=1)
+            ae_upconv2 = upconv_layer(layer_pool5, name="layer_upconv2",
+                                      kernel_size=(2, 5), filters=filters, strides=(1, 2))
             ae_upconv2_activation = tf.nn.elu(batch_norm(ae_upconv2))
 
             ae_upconv3 = upconv_layer(ae_upconv2_activation, name="layer_upconv3",
-                                      kernel_size=(1, 5), filters=5, strides=1)
+                                      kernel_size=(2, 5), filters=filters, strides=(1, 2))
             ae_upconv3_activation = tf.nn.elu(batch_norm(ae_upconv3))
 
             ae_upconv4 = upconv_layer(ae_upconv3_activation, name="layer_upconv4",
-                                      kernel_size=(1, 5), filters=5, strides=1)
+                                      kernel_size=(2, 5), filters=filters, strides=(1, 2))
             ae_upconv4_activation = tf.nn.elu(batch_norm(ae_upconv4))
 
             ae_upconv5 = upconv_layer(ae_upconv4_activation, name="layer_upconv5",
-                                      kernel_size=(2, 5), filters=1, strides=1)
+                                      kernel_size=(2, 5), filters=filters, strides=(1, 2),
+                                      padding='same')
             ae_upconv5_activation = tf.nn.elu(batch_norm(ae_upconv5))
 
-            ae_output = tf.identity(ae_upconv5_activation, name="output")
+            ae_upconv6 = upconv_layer(ae_upconv5_activation, name="layer_upconv6",
+                                      kernel_size=(2, 5), filters=filters, strides=(1, 2),
+                                      padding='same')
+            ae_upconv6_activation = tf.nn.elu(batch_norm(ae_upconv6))
+
+            ae_upconv7 = upconv_layer(ae_upconv6_activation, name="layer_upconv7",
+                                      kernel_size=(2, 5), filters=filters, strides=(1, 2),
+                                      padding='same')
+            # ae_upconv7_activation = tf.nn.elu(batch_norm(ae_upconv7))
+
+            ae_upconv7_activation = (batch_norm(ae_upconv7))
+            ae_mean = tf.reduce_mean(ae_upconv7_activation, axis=(3), keep_dims=True)
+
+            # ae_conv_reduce = conv_layer(ae_upconv5_activation, name="ae_conv_reduce",
+                                        # kernel_size=(1, 1), filters=1, strides=(1, 1))
+            # ae_conv_reduce_activation = (batch_norm(ae_conv_reduce))
+
+            # Crop the output down to match the input.
+            ae_output = tf.identity(ae_mean[:, :, 7:507, :], name="output")
 
         # Inference branch
         with tf.variable_scope("infer"):
-            infer_conv2 = conv_layer(layer_pool1, name="layer_conv2", filters=5,
-                                     kernel_size=(1, 5), strides=(1, 1))
-            infer_conv2_activation = tf.nn.elu(batch_norm(infer_conv2))
-            infer_pool2 = pool_layer(infer_conv2_activation, name="layer_pool2",
-                                     pool_size=(1, 5), strides=(1, 1))
+            # Size goes: [number of examples, height * width * filters]
+            infer_flattened = tf.reshape(layer_pool5, [-1, 2 * middle_size * filters])
 
-            infer_pool_flattened = tf.reshape(infer_pool2, [-1, 1 * min_conv_size * 5])
-            infer_output_layer = dense_layer(infer_pool_flattened, size_output, name="output_layer")
-            infer_output_layer_activation = tf.nn.elu(batch_norm(infer_output_layer))
+            infer_dense0 = dense_layer(infer_flattened, hyperparams['size_li'],
+                                       name="layer_dense0")
+            infer_dense0_activation = tf.nn.elu(batch_norm(infer_dense0))
+
+            infer_dense1 = dense_layer(infer_dense0_activation, hyperparams['size_li'],
+                                       name="layer_dense1")
+            infer_dense1_activation = tf.nn.elu(batch_norm(infer_dense1))
+
+            infer_dense2 = dense_layer(infer_dense1_activation, hyperparams['size_li'],
+                                       name="layer_dense2")
+            infer_dense2_activation = tf.nn.elu(batch_norm(infer_dense2))
+
+            infer_output_layer = dense_layer(infer_dense2_activation, size_output,
+                                             name="output_layer")
+            # infer_output_layer_activation = tf.nn.elu(batch_norm(infer_output_layer))
+            infer_output_layer_activation = (batch_norm(infer_output_layer))
             infer_output = tf.identity(infer_output_layer_activation, name="output")
 
     with tf.variable_scope("loss"):
