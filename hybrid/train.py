@@ -191,7 +191,7 @@ def train(hyperparams, debug=False):
         init.run()
         summaries_op = tf.compat.v1.summary.merge_all()
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
-        infer_best_loss = 1000
+        ae_best_loss = 1000
 
         # Augment our test data.
         X_test = preprocess.add_offset(X_test, hyperparams, epoch=0)
@@ -279,12 +279,12 @@ def train(hyperparams, debug=False):
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
                               infer_loss_train, infer_loss_test, ae_loss_train, ae_loss_test))
 
-                if infer_loss_test < infer_best_loss:
-                    infer_best_loss = infer_loss_test
+                if ae_loss_test < ae_best_loss:
+                    ae_best_loss = ae_loss_test
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
 
             if epoch % 100 == 0:
-                saver.save(sess, "./saved_models/model-{}.ckpt".format(now))
+                saver.save(sess, "./saved_models/model-{}-epoch-{}.ckpt".format(now, epoch))
 
             # Make plots comparing learned parameters to the actual ones.
             if epoch % 100 == 0:  # Changed this to 100 from 1000 because we have much more data.
