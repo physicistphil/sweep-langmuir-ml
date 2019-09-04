@@ -141,6 +141,9 @@ def add_real_noise(X, hyperparams, epoch=0):
     # Normalizing to values to have roughly unity peak-to-peak by dividing by 0.2
     noise = np.real(np.fft.ifft(fft_abs *
                                 phase(random_angle))) / 0.1
-    X[:, hyperparams['n_inputs']:] += noise * noise_scale[:, np.newaxis]
+    # Scale noise by a random number so there are some sweeps with noise and some without much.
+    np.random.seed(seed)
+    random_scalaing = np.random.uniform(0.0, 1.0, size=(X.shape[0], 1))
+    X[:, hyperparams['n_inputs']:] += noise * noise_scale[:, np.newaxis] * random_scalaing
 
     return X
