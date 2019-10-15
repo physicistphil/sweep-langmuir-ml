@@ -402,7 +402,7 @@ if __name__ == '__main__':
                    # 'size_l1': 50,
                    # 'size_l2': 50,
                    # 'size_lh': 20,
-                   'filters': 1,
+                   'filters': 3,
                    'size_li': 50,
                    'switch_num': 1,  # Number of epochs to train ae or inferer before switching
                    'freeze_ae': True,
@@ -420,7 +420,7 @@ if __name__ == '__main__':
                    'offset_scale': 0.0,
                    'noise_scale': 0.4,
                    # Training info
-                   'steps': 2000,
+                   'steps': 20000,
                    'seed': 42,
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
