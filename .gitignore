@@ -130,3 +130,6 @@ venv.bak/
 
 # nvidia profiler output
 *.nvvp
+
+# Apple metadata
+*.DS_Store
