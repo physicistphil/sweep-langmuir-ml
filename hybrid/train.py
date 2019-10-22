@@ -12,7 +12,7 @@ import os
 
 # Custom tools from other directories
 import sys
-sys.path.append('/home/phil/Desktop/sweeps/sweep-langmuir-ml/utilities')
+sys.path.append('../utilities')
 import preprocess
 import generate
 import plot_utils

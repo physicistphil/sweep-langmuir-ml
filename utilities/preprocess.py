@@ -5,7 +5,7 @@ import numpy as np
 # This gets the raw, unscaled data straight from the digitizer.
 # Was used for initial testing of the autoencoder strategy.
 def get_raw_mirror_data(input_size):
-    data_dir = "/home/phil/Desktop/sweeps/data/"
+    data_dir = "../../data/"
 
     try:
         dataset = np.load(data_dir + 'data_concat')['dataset']
@@ -40,7 +40,7 @@ def get_mirror_data(input_size):
 def get_mirror_data_with_sweeps(input_size):
     # Multiply by 100 because that's what high-voltage probe was that was set for.
     # This only applies to mirror data taken during the week of June 17th, 2018.
-    data_dir = "/home/phil/Desktop/sweeps/data/"
+    data_dir = "../../data/"
 
     try:
         dataset = np.load(data_dir + 'data_with_sweeps.npz')['dataset']
@@ -128,7 +128,7 @@ def phase(angle):
 # fft_abs.shape = (51, 64, 500) -- 51 positions, 64 shots per position.
 def add_real_noise(X, hyperparams, epoch=0):
     noise_scale = hyperparams['noise_scale'] * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
-    spectrum_path = "/home/phil/Desktop/sweeps/data/"
+    spectrum_path = "../../data/"
     fft_abs = np.load(spectrum_path + "fft_abs.npz")['fft_abs']
     fft_abs = np.mean(fft_abs, axis=1)[0][np.newaxis, :]  # Average over shots, r = 0 cm position.
 
