@@ -1,11 +1,11 @@
 import tensorflow as tf
+import numpy as np
 from functools import partial
 
 
-def make_conv_nn(hyperparams, size_output=3, debug=False):
+def make_phys_nn(hyperparams):
     with tf.name_scope("data"):
         X = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2], name="X")
-        y = tf.compat.v1.placeholder(tf.float32, [None, size_output], name="y")
         training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
         X_ptp = tf.compat.v1.placeholder(tf.float32, name="X_ptp")
         X_mean = tf.compat.v1.placeholder(tf.float32, name="X_mean")
@@ -120,34 +120,50 @@ def make_conv_nn(hyperparams, size_output=3, debug=False):
             # Crop the output down to match the input.
             ae_output = tf.identity(ae_mean[:, :, 7:507, :], name="output")
 
-        # Inference branch
-        norm_ne_factor = 1e17  # per m^3
-        norm_Vp_factor = 10  # Vp tends to be on the order of 10
-        norm_Te_factor = 1.609e-19  # J / eV
-        norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
+        # Physical model branch
+        S = 2e-6  # Area of the probe
+        me = 9.109e-31  # Mass of electron
+        e = 1.602e-19  # Elemntary charge
+        # norm_ne_factor = 1e17  # per m^3
+        # norm_Vp_factor = 10  # Vp tends to be on the order of 10
+        # norm_Te_factor = 1.609e-19  # J / eV
+        # norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
         with tf.variable_scope("phys"):
             # Size goes: [number of examples, height * width * filters]
             phys_flattened = tf.reshape(layer_pool5, [-1, 2 * middle_size * filters])
-
             phys_dense0 = dense_layer(phys_flattened, hyperparams['n_phys_inputs'],
                                       name="layer_dense0")
             # Start with just linear activations
             phys_dense0_activation = (batch_norm(phys_dense0))
 
-            phys_model_input = phys_dense0_activation * norm_factors
-            # PHYISCS MODEL GOES HERE
+            # This is analytical simple langmuir sweep. See generate.py for a better explanation.
+            # Scale the input parameters so that the network parameters are sane values,
+            #   but use the computed values so that it cannot halucinate a different trace (maybe?)
+            phys_input = tf.identity(phys_dense0_activation * X_ptp + X_mean, name="input")
+            # Lanmguir sweep calculations
+            I_esat = S * phys_input[:, 0] * e / tf.sqrt(2 * np.pi * me)
+            current = (I_esat * tf.sqrt(phys_input[2]) *
+                       tf.exp(-e * (phys_input[1] - X[:, 0:hyperparams['n_inputs']]) /
+                              phys_input[2]))
+            esat_condition = tf.less(phys_input[1], X[:, 0:hyperparams['n_inputs']])
+            esat_filled = tf.where(esat_condition, current, I_esat)
 
-            infer_output = tf.identity(phys_model_output, name="output")
+            # phys_output = tf.Variable(name="output")
+            # phys_output.assign(esat_location, )
+            # current.assign(esat_location)
+
+            # Output to optimize on.
+            phys_output = tf.identity(esat_filled, name="output")
 
     with tf.variable_scope("loss"):
         with tf.variable_scope("ae"):
             ae_loss_base = tf.nn.l2_loss(ae_output - X_reshaped, name="loss_base")
             ae_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             ae_loss_total = tf.add_n([ae_loss_base] + ae_loss_reg, name="loss_total")
-        with tf.variable_scope("infer"):
-            infer_loss_base = tf.nn.l2_loss(infer_output - y, name="loss_base")
-            infer_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            infer_loss_total = tf.add_n([infer_loss_base] + infer_loss_reg, name="loss_total")
+        with tf.variable_scope("phys"):
+            phys_loss_base = tf.nn.l2_loss(phys_output - X_reshaped[:, 500:], name="loss_base")
+            phys_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            phys_loss_total = tf.add_n([phys_loss_base] + phys_loss_reg, name="loss_total")
 
     with tf.variable_scope("train"):
         ae_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
@@ -158,23 +174,16 @@ def make_conv_nn(hyperparams, size_output=3, debug=False):
         #   synthetic traces can be capture in the first part of the autoencoder network.
         if hyperparams['freeze_ae']:
             infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-                                           scope=".+(batch_normalization).+|.+(infer).+")
+                                           scope=".+(batch_normalization).+|.+(phys).+")
         else:
             infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
         infer_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                          hyperparams['momentum'], use_nesterov=True)
 
-        if not debug:
-            ae_training_op = ae_opt.minimize(ae_loss_total)
-            infer_training_op = infer_opt.minimize(infer_loss_total, infer_vars)
+        ae_grads = ae_opt.compute_gradients(ae_loss_total)
+        infer_grads = infer_opt.compute_gradients(phys_loss_total, infer_vars)
+        ae_training_op = ae_opt.apply_gradients(ae_grads)
+        infer_training_op = infer_opt.apply_gradients(infer_grads)
 
-            return (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
-                    ae_loss_total, infer_loss_total)
-        else:
-            ae_grads = ae_opt.compute_gradients(ae_loss_total)
-            infer_grads = infer_opt.compute_gradients(infer_loss_total, infer_vars)
-            ae_training_op = ae_opt.apply_gradients(ae_grads)
-            infer_training_op = infer_opt.apply_gradients(infer_grads)
-
-            return (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
-                    ae_loss_total, infer_loss_total, ae_grads, infer_grads)
+        return (ae_training_op, infer_training_op, X, training, ae_output, phys_output,
+                ae_loss_total, phys_loss_total, ae_grads, infer_grads)
