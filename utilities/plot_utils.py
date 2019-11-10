@@ -64,6 +64,33 @@ def autoencoder_plot_worst(sess, data_train, X, output, hyperparams):
     return fig, axes
 
 
+def phys_plot_comparison(sess, data_test, X, output, hyperparams):
+    size = data_test.shape[0]
+
+    output_test = output.eval(session=sess, feed_dict={X: data_test})
+
+    # Reshape in case our data is 2d (which would be the case for a convolutional autoencoder)
+    data_test = np.reshape(data_test, (size, -1))
+    output_test = np.reshape(output_test, (size, -1))
+
+    fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
+    fig.suptitle('Comparison of test set and physics-based reconstruction')
+
+    np.random.seed(hyperparams['seed'])
+    randidx = np.random.randint(size, size=(3, 4))
+
+    for x, y in np.ndindex((3, 4)):
+        axes[x, y].plot(data_test[randidx[x, y], (size // 2):], label="Input")
+        axes[x, y].plot(output_test[randidx[x, y]], label="Reconstruction")
+        axes[x, y].set_title("Index {}".format(randidx[x, y]))
+
+    axes[0, 0].legend()
+
+    # fig.tight_layout()
+
+    return fig, axes
+
+
 # Compare plots of the actual curve vs the one inferred from the model.
 def inferer_plot_comparison(sess, data_test, X, output, mean, diff, hyperparams):
     output_test = output.eval(session=sess, feed_dict={X: data_test}) * diff + mean
