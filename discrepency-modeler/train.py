@@ -12,7 +12,7 @@ import os
 
 # Custom tools from other directories
 import sys
-sys.path.append('.../utilities')
+sys.path.append('../utilities')
 import preprocess
 import generate
 import plot_utils
@@ -49,7 +49,7 @@ def get_real_data(hyperparams):
     return data_train, data_test, data_valid, data_mean, data_ptp
 
 
-def train(hyperparams, debug=False):
+def train(hyperparams):
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     wandb.log({"now": now}, step=0)
     os.mkdir("plots/fig-{}".format(now))
@@ -59,22 +59,17 @@ def train(hyperparams, debug=False):
     data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
 
     # Build the models to train on.
-    if not debug:
-        (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
-         ae_loss_total, infer_loss_total) = build_graph.make_small_nn(hyperparams, size_output=3)
-    else:
-        (ae_training_op, infer_training_op, X, y, training, ae_output, infer_output,
-         ae_loss_total, infer_loss_total,
-         ae_grads, infer_grads) = build_graph.make_conv_nn(hyperparams, size_output=3, debug=debug)
+    (ae_training_op, phys_training_op, X, X_mean, X_ptp, training, ae_output, phys_output,
+     ae_loss_total, phys_loss_total, ae_grads, phys_grads) = build_graph.make_phys_nn(hyperparams)
 
-        for grad, var in ae_grads:
-            if grad is not None and var is not None:
-                tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
-                tf.compat.v1.summary.histogram("variables/" + var.name, var)
-        for grad, var in infer_grads:
-            if grad is not None and var is not None:
-                tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
-                tf.compat.v1.summary.histogram("variables/" + var.name, var)
+    for grad, var in ae_grads:
+        if grad is not None and var is not None:
+            tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
+            tf.compat.v1.summary.histogram("variables/" + var.name, var)
+    for grad, var in phys_grads:
+        if grad is not None and var is not None:
+            tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
+            tf.compat.v1.summary.histogram("variables/" + var.name, var)
 
     # Initialize configuration and variables.
     init = tf.compat.v1.global_variables_initializer()
@@ -91,27 +86,26 @@ def train(hyperparams, debug=False):
         init.run()
         summaries_op = tf.compat.v1.summary.merge_all()
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
-        ae_best_loss = 1000
+        phys_best_loss = 1000
 
         for epoch in range(hyperparams['steps']):
 
-            # Train the autoencoder.
+            # Train the physics portion of the network.
             for i in range(data_train.shape[0] // batch_size):
                 data_batch = data_train[i * batch_size:(i + 1) * batch_size]
-                sess.run([ae_training_op, extra_update_ops],
-                         feed_dict={X: data_batch, y: np.zeros((batch_size, 3)),
-                                    training: True})
-                if i == 0 and epoch % 10 == 0 and debug:
+                sess.run([phys_training_op, extra_update_ops],
+                         feed_dict={X: data_batch, training: True,
+                                    X_mean: data_mean, X_ptp: data_ptp})
+                if i == 0 and epoch % 10 == 0:
                     summary = sess.run(summaries_op,
-                                       feed_dict={X: data_train[0:batch_size],
-                                                  y: np.zeros((batch_size, 3)),
-                                                  training: True})
+                                       feed_dict={X: data_train[0:batch_size], training: True,
+                                                  X_mean: data_mean, X_ptp: data_ptp})
                     summary_writer.add_summary(summary, epoch)
             if (data_train.shape[0] % batch_size) != 0:
                 data_batch = data_train[(i + 1) * batch_size:]
-                sess.run([ae_training_op, extra_update_ops],
-                         feed_dict={X: data_batch, y: np.zeros((batch_size, 3)),
-                                    training: True})
+                sess.run([phys_training_op, extra_update_ops],
+                         feed_dict={X: data_batch, training: True,
+                                    X_mean: data_mean, X_ptp: data_ptp})
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
@@ -125,21 +119,23 @@ def train(hyperparams, debug=False):
             if epoch % 10 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
 
-                ae_loss_train = (ae_loss_total.eval(feed_dict={X: data_train[0:batch_size],
-                                                               y: np.zeros((batch_size, 3))}) /
-                                 batch_size)
-                ae_loss_test = (ae_loss_total.eval(feed_dict={X: data_test[0:batch_size],
-                                                              y: np.zeros((batch_size, 3))}) /
-                                batch_size)
-                wandb.log({'ae_loss_train': ae_loss_train,
-                           'ae_loss_test': ae_loss_test}, step=epoch)
+                phys_loss_train = (phys_loss_total.eval(feed_dict={X: data_train[0:batch_size],
+                                                                   X_mean: data_mean,
+                                                                   X_ptp: data_ptp}) /
+                                   batch_size)
+                phys_loss_test = (phys_loss_total.eval(feed_dict={X: data_test[0:batch_size],
+                                                                  X_mean: data_mean,
+                                                                  X_ptp: data_ptp}) /
+                                  batch_size)
+                wandb.log({'phys_loss_train': phys_loss_train,
+                           'phys_loss_test': phys_loss_test}, step=epoch)
 
-                print(("Epoch {:5}\tT: {} \ta_tr: {:.3e}\ta_te: {:.3e}")
+                print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}\tp_te: {:.3e}")
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
-                              ae_loss_train, ae_loss_test))
+                              phys_loss_train, phys_loss_test))
 
-                if ae_loss_test < ae_best_loss:
-                    ae_best_loss = ae_loss_test
+                if phys_loss_test < phys_best_loss:
+                    phys_best_loss = phys_loss_test
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
 
             if epoch % 100 == 0:
@@ -149,9 +145,9 @@ def train(hyperparams, debug=False):
             if epoch % 100 == 0:  # Changed this to 100 from 1000 because we have much more data.
 
                 fig_compare_ae, axes_ae = plot_utils. \
-                    autoencoder_plot_comparison(sess, data_test[0:batch_size], X, ae_output,
-                                                hyperparams)
-                fig_compare_ae.savefig(fig_path + "ae_compare-epoch-{}".format(epoch))
+                    phys_plot_comparison(sess, data_test[0:batch_size], X, phys_output,
+                                         hyperparams)
+                fig_compare_ae.savefig(fig_path + "phys_compare-epoch-{}".format(epoch))
 
                 # Close all the figures so that memory can be freed.
                 plt.close('all')
@@ -160,26 +156,28 @@ def train(hyperparams, debug=False):
 
         # ---------------------- Log results ---------------------- #
         # calculate loss
-        ae_loss_train = (ae_loss_total.eval(feed_dict={X: data_train[0:batch_size],
-                                                       y: np.zeros((batch_size, 3))}) /
-                         batch_size)
-        ae_loss_test = (ae_loss_total.eval(feed_dict={X: data_test[0:batch_size],
-                                                      y: np.zeros((batch_size, 3))}) /
-                        batch_size)
-        wandb.log({'ae_loss_train': ae_loss_train,
-                   'ae_loss_test': ae_loss_test}, step=epoch)
+        phys_loss_train = (phys_loss_total.eval(feed_dict={X: data_train[0:batch_size],
+                                                           X_mean: data_mean,
+                                                           X_ptp: data_ptp}) /
+                           batch_size)
+        phys_loss_test = (phys_loss_total.eval(feed_dict={X: data_test[0:batch_size],
+                                                          X_mean: data_mean,
+                                                          X_ptp: data_ptp}) /
+                          batch_size)
+        wandb.log({'phys_loss_train': phys_loss_train,
+                   'phys_loss_test': phys_loss_test}, step=epoch)
 
-        print(("Epoch {:5}\tT: {} \ta_tr: {:.3e}\ta_te: {:.3e}")
+        print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}\tp_te: {:.3e}")
               .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
-                      ae_loss_train, ae_loss_test))
+                      phys_loss_train, phys_loss_test))
 
         saver.save(sess, "./saved_models/model-{}-final.ckpt".format(now))
 
         # ---------------------- Make figures ---------------------- #
-        fig_compare_ae, axes_ae = plot_utils. \
-            autoencoder_plot_comparison(sess, data_test[0:batch_size], X, ae_output, hyperparams, y)
-        fig_compare_ae.savefig(fig_path + "ae_compare".format(now))
-        wandb.log({"ae_comaprison_plot": [wandb.Image(fig_compare_ae)]}, step=epoch)
+        fig_compare_phys, axes_phys = plot_utils. \
+            phys_plot_comparison(sess, data_test[0:batch_size], X, phys_output, hyperparams)
+        fig_compare_phys.savefig(fig_path + "phys_compare".format(now))
+        wandb.log({"phys_comaprison_plot": [wandb.Image(fig_compare_phys)]}, step=epoch)
 
         # Show the worst performing fits (may not implement this).
         # fig_worst, axes = plot_utils.plot_worst(sess, X_train, X, output, hyperparams)
@@ -205,7 +203,7 @@ if __name__ == '__main__':
                    'filters': 3,
                    'size_li': 50,
                    'switch_num': 1,  # Number of epochs to train ae or inferer before switching
-                   'freeze_ae': True,
+                   'freeze_ae': False,
                    # Optimization hyperparamters
                    'learning_rate': 1e-6,
                    'momentum': 0.99,
@@ -224,4 +222,4 @@ if __name__ == '__main__':
                    'seed': 42,
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
-    train(hyperparams, debug=True)
+    train(hyperparams)

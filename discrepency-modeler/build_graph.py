@@ -38,7 +38,7 @@ def make_phys_nn(hyperparams):
 
     middle_size = 8
     filters = hyperparams['filters']
-    # min_conv_size = 56  # Determinded by the input convolutions.
+    # min_conv_size = 56  # Determined by the input convolutions.
     # size_ouput = 3 (default)
 
     with tf.name_scope("nn"):
@@ -46,7 +46,7 @@ def make_phys_nn(hyperparams):
             layer_conv0 = conv_layer(X_reshaped, name="layer_conv0", filters=filters,
                                      kernel_size=(2, 5), strides=(1, 1))
             # Just keep middle row (making the height dimension padding 'valid').
-            # We need 1:2 (instaed of just 1) to preserve the dimension.
+            # We need 1:2 (instead of just 1) to preserve the dimension.
             layer_conv0_activation = tf.nn.elu(batch_norm(layer_conv0[:, :, :, :]))
             layer_pool0 = pool_layer(layer_conv0_activation, name="layer_pool0",
                                      pool_size=(1, 5), strides=(1, 2))
@@ -123,30 +123,32 @@ def make_phys_nn(hyperparams):
         # Physical model branch
         S = 2e-6  # Area of the probe
         me = 9.109e-31  # Mass of electron
-        e = 1.602e-19  # Elemntary charge
-        # norm_ne_factor = 1e17  # per m^3
-        # norm_Vp_factor = 10  # Vp tends to be on the order of 10
-        # norm_Te_factor = 1.609e-19  # J / eV
-        # norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
+        e = 1.602e-19  # Elementary charge
+        norm_ne_factor = 1e17  # per m^3
+        norm_Vp_factor = 10  # Vp tends to be on the order of 10
+        norm_Te_factor = 1.609e-19  # J / eV
+        norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
         with tf.variable_scope("phys"):
             # Size goes: [number of examples, height * width * filters]
             phys_flattened = tf.reshape(layer_pool5, [-1, 2 * middle_size * filters])
             phys_dense0 = dense_layer(phys_flattened, hyperparams['n_phys_inputs'],
                                       name="layer_dense0")
-            # Start with just linear activations
-            phys_dense0_activation = (batch_norm(phys_dense0))
+            # Add the 1 to the ELU to guarantee positive numbers (or else NaNs appear).
+            phys_dense0_activation = tf.nn.elu((phys_dense0)) + 1
 
-            # This is analytical simple langmuir sweep. See generate.py for a better explanation.
+            # This is analytical simple Langmuir sweep. See generate.py for a better explanation.
             # Scale the input parameters so that the network parameters are sane values,
-            #   but use the computed values so that it cannot halucinate a different trace (maybe?)
-            phys_input = tf.identity(phys_dense0_activation * X_ptp + X_mean, name="input")
-            # Lanmguir sweep calculations
-            I_esat = S * phys_input[:, 0] * e / tf.sqrt(2 * np.pi * me)
-            current = (I_esat * tf.sqrt(phys_input[2]) *
-                       tf.exp(-e * (phys_input[1] - X[:, 0:hyperparams['n_inputs']]) /
-                              phys_input[2]))
-            esat_condition = tf.less(phys_input[1], X[:, 0:hyperparams['n_inputs']])
-            esat_filled = tf.where(esat_condition, current, I_esat)
+            #   but use the computed values so that it cannot hallucinate a different trace (maybe?)
+            phys_input = tf.identity(phys_dense0_activation * 1, name="input")
+            # Lanmguir sweep calculations.
+            # You need the explicit end index to preserve that dimension to enable broadcasting.
+            I_esat = S * phys_input[:, 0:1] * e / np.sqrt(2 * np.pi * me)
+            current = (I_esat * tf.sqrt(phys_input[:, 2:3]) *
+                       tf.exp(-e * (phys_input[:, 1:2] - X[:, 0:hyperparams['n_inputs']]) /
+                              phys_input[:, 2:3]))
+            esat_condition = tf.less(phys_input[:, 1:2], X[:, 0:hyperparams['n_inputs']])
+            # Need the _v2 to have good broadcasting support (requires TF > 1.14).
+            esat_filled = tf.where_v2(esat_condition, current, I_esat)
 
             # phys_output = tf.Variable(name="output")
             # phys_output.assign(esat_location, )
@@ -161,7 +163,9 @@ def make_phys_nn(hyperparams):
             ae_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             ae_loss_total = tf.add_n([ae_loss_base] + ae_loss_reg, name="loss_total")
         with tf.variable_scope("phys"):
-            phys_loss_base = tf.nn.l2_loss(phys_output - X_reshaped[:, 500:], name="loss_base")
+            phys_loss_base = tf.nn.l2_loss(phys_output - X[:, hyperparams['n_inputs']:] *
+                                           X_ptp[hyperparams['n_inputs']:] +
+                                           X_mean[hyperparams['n_inputs']:], name="loss_base")
             phys_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             phys_loss_total = tf.add_n([phys_loss_base] + phys_loss_reg, name="loss_total")
 
@@ -173,17 +177,20 @@ def make_phys_nn(hyperparams):
         # We also want to train the batch normalization terms so that the distribution of the
         #   synthetic traces can be capture in the first part of the autoencoder network.
         if hyperparams['freeze_ae']:
-            infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-                                           scope=".+(batch_normalization).+|.+(phys).+")
+            phys_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                          scope=".+(batch_normalization).+|.+(phys).+")
         else:
-            infer_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-        infer_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
-                                                         hyperparams['momentum'], use_nesterov=True)
+            phys_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+        phys_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
+                                                        hyperparams['momentum'], use_nesterov=True)
 
         ae_grads = ae_opt.compute_gradients(ae_loss_total)
-        infer_grads = infer_opt.compute_gradients(phys_loss_total, infer_vars)
-        ae_training_op = ae_opt.apply_gradients(ae_grads)
-        infer_training_op = infer_opt.apply_gradients(infer_grads)
 
-        return (ae_training_op, infer_training_op, X, training, ae_output, phys_output,
-                ae_loss_total, phys_loss_total, ae_grads, infer_grads)
+        phys_grads, pvars = zip(*phys_opt.compute_gradients(phys_loss_total, phys_vars))
+        phys_grads, _ = tf.clip_by_global_norm(phys_grads, 1.0)
+
+        ae_training_op = ae_opt.apply_gradients(ae_grads)
+        phys_training_op = phys_opt.apply_gradients(zip(phys_grads, pvars))
+
+        return (ae_training_op, phys_training_op, X, X_mean, X_ptp, training, ae_output,
+                phys_output, ae_loss_total, phys_loss_total, ae_grads, zip(phys_grads, pvars))
