@@ -62,10 +62,10 @@ def train(hyperparams):
     (ae_training_op, phys_training_op, X, X_mean, X_ptp, training, ae_output, phys_output,
      ae_loss_total, phys_loss_total, ae_grads, phys_grads) = build_graph.make_phys_nn(hyperparams)
 
-    for grad, var in ae_grads:
-        if grad is not None and var is not None:
-            tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
-            tf.compat.v1.summary.histogram("variables/" + var.name, var)
+    # for grad, var in ae_grads:
+    #     if grad is not None and var is not None:
+    #         tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
+    #         tf.compat.v1.summary.histogram("variables/" + var.name, var)
     for grad, var in phys_grads:
         if grad is not None and var is not None:
             tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
@@ -205,7 +205,7 @@ if __name__ == '__main__':
                    'switch_num': 1,  # Number of epochs to train ae or inferer before switching
                    'freeze_ae': False,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-6,
+                   'learning_rate': 1e-4,
                    'momentum': 0.99,
                    'l2_scale': 0.1,
                    'batch_size': 1024,

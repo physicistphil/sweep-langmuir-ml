@@ -121,30 +121,34 @@ def make_phys_nn(hyperparams):
             ae_output = tf.identity(ae_mean[:, :, 7:507, :], name="output")
 
         # Physical model branch
-        S = 2e-6  # Area of the probe
+        S = 2e-6  # Area of the probe in m^2
         me = 9.109e-31  # Mass of electron
         e = 1.602e-19  # Elementary charge
+        # Physical prefactor for the sweep equation
+        physical_prefactor = (e ** (3 / 2)) / np.sqrt(2 * np.pi * me)
         norm_ne_factor = 1e17  # per m^3
-        norm_Vp_factor = 10  # Vp tends to be on the order of 10
-        norm_Te_factor = 1.609e-19  # J / eV
+        norm_Vp_factor = 1  # Vp tends to be on the order of 10--this should be fine
+        norm_Te_factor = 1  # Temperatue is in eV
         norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
         with tf.variable_scope("phys"):
             # Size goes: [number of examples, height * width * filters]
             phys_flattened = tf.reshape(layer_pool5, [-1, 2 * middle_size * filters])
             phys_dense0 = dense_layer(phys_flattened, hyperparams['n_phys_inputs'],
                                       name="layer_dense0")
-            # Add the 1 to the ELU to guarantee positive numbers (or else NaNs appear).
-            phys_dense0_activation = tf.nn.elu((phys_dense0)) + 1
+            # Constrain to guarantee positive numbers (or else NaNs appear from sqrt).
+            phys_dense0_activation = tf.nn.elu(phys_dense0) + 1.001
 
             # This is analytical simple Langmuir sweep. See generate.py for a better explanation.
             # Scale the input parameters so that the network parameters are sane values,
             #   but use the computed values so that it cannot hallucinate a different trace (maybe?)
-            phys_input = tf.identity(phys_dense0_activation * 1, name="input")
+            # This implementation of the analytical langmuir sweep uses unconventional units
+            #   (see above norm factors)
+            phys_input = tf.identity(phys_dense0_activation * norm_factors, name="input")
             # Lanmguir sweep calculations.
             # You need the explicit end index to preserve that dimension to enable broadcasting.
-            I_esat = S * phys_input[:, 0:1] * e / np.sqrt(2 * np.pi * me)
+            I_esat = S * phys_input[:, 0:1] * physical_prefactor
             current = (I_esat * tf.sqrt(phys_input[:, 2:3]) *
-                       tf.exp(-e * (phys_input[:, 1:2] - X[:, 0:hyperparams['n_inputs']]) /
+                       tf.exp(-(phys_input[:, 1:2] - X[:, 0:hyperparams['n_inputs']]) /
                               phys_input[:, 2:3]))
             esat_condition = tf.less(phys_input[:, 1:2], X[:, 0:hyperparams['n_inputs']])
             # Need the _v2 to have good broadcasting support (requires TF > 1.14).
@@ -187,7 +191,7 @@ def make_phys_nn(hyperparams):
         ae_grads = ae_opt.compute_gradients(ae_loss_total)
 
         phys_grads, pvars = zip(*phys_opt.compute_gradients(phys_loss_total, phys_vars))
-        phys_grads, _ = tf.clip_by_global_norm(phys_grads, 1.0)
+        # phys_grads, _ = tf.clip_by_global_norm(phys_grads, 1.0)
 
         ae_training_op = ae_opt.apply_gradients(ae_grads)
         phys_training_op = phys_opt.apply_gradients(zip(phys_grads, pvars))
