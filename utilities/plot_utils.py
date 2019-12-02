@@ -64,10 +64,12 @@ def autoencoder_plot_worst(sess, data_train, X, output, hyperparams):
     return fig, axes
 
 
-def phys_plot_comparison(sess, data_test, X, output, hyperparams):
+def phys_plot_comparison(sess, data_test, data_mean, data_ptp,
+                         X, X_mean, X_ptp, output, hyperparams):
     size = data_test.shape[0]
 
-    output_test = output.eval(session=sess, feed_dict={X: data_test})
+    output_test = output.eval(session=sess, feed_dict={X: data_test, X_mean: data_mean,
+                                                       X_ptp: data_ptp})
 
     # Reshape in case our data is 2d (which would be the case for a convolutional autoencoder)
     data_test = np.reshape(data_test, (size, -1))
