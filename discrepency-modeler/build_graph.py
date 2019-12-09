@@ -130,13 +130,14 @@ def make_phys_nn(hyperparams):
         norm_Vp_factor = 1  # Vp tends to be on the order of 10--this should be fine
         norm_Te_factor = 1  # Temperatue is in eV
         norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
+        epsilon = 1e-12
         with tf.variable_scope("phys"):
             # Size goes: [number of examples, height * width * filters]
             phys_flattened = tf.reshape(layer_pool5, [-1, 2 * middle_size * filters])
             phys_dense0 = dense_layer(phys_flattened, hyperparams['n_phys_inputs'],
                                       name="layer_dense0")
             # Constrain to guarantee positive numbers (or else NaNs appear from sqrt).
-            phys_dense0_activation = tf.nn.elu(phys_dense0) + 1.001
+            phys_dense0_activation = tf.nn.elu(phys_dense0) + 1 + epsilon
 
             # This is analytical simple Langmuir sweep. See generate.py for a better explanation.
             # Scale the input parameters so that the network parameters are sane values,
@@ -151,15 +152,12 @@ def make_phys_nn(hyperparams):
                        tf.exp(-(phys_input[:, 1:2] - X[:, 0:hyperparams['n_inputs']]) /
                               phys_input[:, 2:3]))
             esat_condition = tf.less(phys_input[:, 1:2], X[:, 0:hyperparams['n_inputs']])
-            # Need the _v2 to have good broadcasting support (requires TF > 1.14).
+            # Need the _v2 to have good broadcasting support (requires TF >= 1.14).
             esat_filled = tf.where_v2(esat_condition, current, I_esat)
 
-            # phys_output = tf.Variable(name="output")
-            # phys_output.assign(esat_location, )
-            # current.assign(esat_location)
-
             # Output to optimize on.
-            phys_output = tf.identity(esat_filled, name="output")
+            phys_output = ((tf.identity(esat_filled, name="output") -
+                            X_mean[hyperparams['n_inputs']:]) / X_ptp[hyperparams['n_inputs']:])
 
     with tf.variable_scope("loss"):
         with tf.variable_scope("ae"):
@@ -167,9 +165,8 @@ def make_phys_nn(hyperparams):
             ae_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             ae_loss_total = tf.add_n([ae_loss_base] + ae_loss_reg, name="loss_total")
         with tf.variable_scope("phys"):
-            phys_loss_base = tf.nn.l2_loss(phys_output - X[:, hyperparams['n_inputs']:] *
-                                           X_ptp[hyperparams['n_inputs']:] +
-                                           X_mean[hyperparams['n_inputs']:], name="loss_base")
+            phys_loss_base = tf.nn.l2_loss(phys_output - X[:, hyperparams['n_inputs']:],
+                                           name="loss_base")
             phys_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             phys_loss_total = tf.add_n([phys_loss_base] + phys_loss_reg, name="loss_total")
 
