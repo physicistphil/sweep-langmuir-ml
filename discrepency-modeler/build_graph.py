@@ -194,4 +194,5 @@ def make_phys_nn(hyperparams):
         phys_training_op = phys_opt.apply_gradients(zip(phys_grads, pvars))
 
         return (ae_training_op, phys_training_op, X, X_mean, X_ptp, training, ae_output,
-                phys_output, ae_loss_total, phys_loss_total, ae_grads, zip(phys_grads, pvars))
+                phys_output, ae_loss_total, phys_loss_total, ae_grads, zip(phys_grads, pvars),
+                phys_input)

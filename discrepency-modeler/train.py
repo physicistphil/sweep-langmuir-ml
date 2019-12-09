@@ -60,7 +60,8 @@ def train(hyperparams):
 
     # Build the models to train on.
     (ae_training_op, phys_training_op, X, X_mean, X_ptp, training, ae_output, phys_output,
-     ae_loss_total, phys_loss_total, ae_grads, phys_grads) = build_graph.make_phys_nn(hyperparams)
+     ae_loss_total, phys_loss_total, ae_grads, phys_grads,
+     phys_input) = build_graph.make_phys_nn(hyperparams)
 
     # for grad, var in ae_grads:
     #     if grad is not None and var is not None:
@@ -96,7 +97,7 @@ def train(hyperparams):
                 sess.run([phys_training_op, extra_update_ops],
                          feed_dict={X: data_batch, training: True,
                                     X_mean: data_mean, X_ptp: data_ptp})
-                if i == 0 and epoch % 10 == 0:
+                if i == 0 and epoch % 10 == 0 and False:
                     summary = sess.run(summaries_op,
                                        feed_dict={X: data_train[0:batch_size], training: True,
                                                   X_mean: data_mean, X_ptp: data_ptp})
@@ -134,6 +135,14 @@ def train(hyperparams):
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
                               phys_loss_train, phys_loss_test))
 
+                phys_numbers = phys_input.eval(feed_dict={X: data_train[0:batch_size],
+                                                          X_mean: data_mean,
+                                                          X_ptp: data_ptp})
+                print("n = {:3.1e} / cm^3 \tVp = {:.1f} V \t\
+                      Te = {:.1f} eV".format(phys_numbers[10, 0] / 1e6,
+                                             phys_numbers[10, 1],
+                                             phys_numbers[10, 2]))
+
                 if phys_loss_test < phys_best_loss:
                     phys_best_loss = phys_loss_test
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
@@ -145,7 +154,8 @@ def train(hyperparams):
             if epoch % 100 == 0:  # Changed this to 100 from 1000 because we have much more data.
 
                 fig_compare_ae, axes_ae = plot_utils. \
-                    phys_plot_comparison(sess, data_test[0:batch_size], X, phys_output,
+                    phys_plot_comparison(sess, data_test[0:batch_size], data_mean, data_ptp,
+                                         X, X_mean, X_ptp, phys_output, phys_input,
                                          hyperparams)
                 fig_compare_ae.savefig(fig_path + "phys_compare-epoch-{}".format(epoch))
 
@@ -175,7 +185,8 @@ def train(hyperparams):
 
         # ---------------------- Make figures ---------------------- #
         fig_compare_phys, axes_phys = plot_utils. \
-            phys_plot_comparison(sess, data_test[0:batch_size], X, phys_output, hyperparams)
+            phys_plot_comparison(sess, data_test[0:batch_size], data_mean, data_ptp,
+                                 X, X_mean, X_ptp, phys_output, phys_input, hyperparams)
         fig_compare_phys.savefig(fig_path + "phys_compare".format(now))
         wandb.log({"phys_comaprison_plot": [wandb.Image(fig_compare_phys)]}, step=epoch)
 
@@ -205,7 +216,7 @@ if __name__ == '__main__':
                    'switch_num': 1,  # Number of epochs to train ae or inferer before switching
                    'freeze_ae': False,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-4,
+                   'learning_rate': 1e-6,
                    'momentum': 0.99,
                    'l2_scale': 0.1,
                    'batch_size': 1024,
@@ -218,7 +229,7 @@ if __name__ == '__main__':
                    'offset_scale': 0.0,
                    'noise_scale': 0.4,
                    # Training info
-                   'steps': 20000,
+                   'steps': 1000,
                    'seed': 42,
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)

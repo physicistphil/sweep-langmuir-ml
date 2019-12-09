@@ -65,11 +65,13 @@ def autoencoder_plot_worst(sess, data_train, X, output, hyperparams):
 
 
 def phys_plot_comparison(sess, data_test, data_mean, data_ptp,
-                         X, X_mean, X_ptp, output, hyperparams):
+                         X, X_mean, X_ptp, output, phys_input, hyperparams):
     size = data_test.shape[0]
 
     output_test = output.eval(session=sess, feed_dict={X: data_test, X_mean: data_mean,
                                                        X_ptp: data_ptp})
+    phys_numbers = phys_input.eval(session=sess, feed_dict={X: data_test, X_mean: data_mean,
+                                                            X_ptp: data_ptp})
 
     # Reshape in case our data is 2d (which would be the case for a convolutional autoencoder)
     data_test = np.reshape(data_test, (size, -1))
@@ -87,6 +89,14 @@ def phys_plot_comparison(sess, data_test, data_mean, data_ptp,
         axes[x, y].set_title("Index {}".format(randidx[x, y]))
 
     axes[0, 0].legend()
+
+    for x, y in np.ndindex((3, 4)):
+        axes[x, y].text(0.05, 0.7,
+                        "ne = {:3.1e} / cm$^3$ \nVp = {:.1f} V \nTe = {:.1f} eV".
+                        format(phys_numbers[randidx[x, y], 0] / 1e6,
+                               phys_numbers[randidx[x, y], 1],
+                               phys_numbers[randidx[x, y], 2]),
+                        transform=axes[x, y].transAxes)
 
     # fig.tight_layout()
 
