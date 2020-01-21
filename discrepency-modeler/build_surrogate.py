@@ -1,5 +1,12 @@
 import tensorflow as tf
 from functools import partial
+import numpy as np
+from matplotlib import pyplot as plt
+
+# Custom tools from other directories
+import sys
+sys.path.append('../utilities')
+import generate
 
 
 class DenseNN:
@@ -13,7 +20,7 @@ class DenseNN:
             # Batch size is not 'batch_size' because the output from the generator is already
             #   the size of one batch.
             self.dataset = self.dataset.batch(1)
-            self.dataset = self.dataset.prefetch(2)  # Prefetch 2 batches
+            self.dataset = self.dataset.prefetch(12)  # Prefetch 2 batches
 
             self.data_iter = self.dataset.make_initializable_iterator()
             self.data_input, self.data_output = self.data_iter.get_next()
@@ -83,6 +90,29 @@ class DenseNN:
 
     def load_model(self, model_path):
         pass
+
+    # Plot results of analytic and surrogate models
+    def plot_comparison(self, sess, hyperparams, save_path, epoch):
+        # print("Plotting comparison")
+
+        # Shape of these outputs is (1, batch_size, n_inputs)
+        data_output, nn_output = sess.run([self.data_output, self.nn_output],
+                                          feed_dict={self.training: False})
+
+        # generated_trace = output_test
+        fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
+        fig.suptitle('Comparison of ')
+        np.random.seed(hyperparams['seed'])
+        randidx = np.random.randint(data_output.shape[1], size=(3, 4))
+
+        for x, y in np.ndindex((3, 4)):
+            axes[x, y].plot(data_output[0, randidx[x, y]], label="Analytic")
+            axes[x, y].plot(nn_output[0, randidx[x, y]], label="Surrogate")
+            axes[x, y].set_title("Index {}".format(randidx[x, y]))
+        axes[0, 0].legend()
+        fig.savefig(save_path + 'surrogate-compare-epoch-{}'.format(epoch))
+
+        # print("Finished plotting comparison")
 
     # Nothing is built by default so that we can build graph components for use
     #   in different models.

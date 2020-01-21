@@ -117,6 +117,8 @@ def train(hyperparams):
                     best_loss = best_loss
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
 
+                model.plot_comparison(sess, hyperparams, fig_path, epoch)
+
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/model-{}-epoch-{}.ckpt".format(now, epoch))
 
@@ -172,7 +174,7 @@ if __name__ == '__main__':
                    # 'size_lh': 20,
                    'n_output': 256,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-5,
+                   'learning_rate': 1e-6,
                    'momentum': 0.99,
                    'l2_scale': 0.1,
                    'batch_size': 1024,
