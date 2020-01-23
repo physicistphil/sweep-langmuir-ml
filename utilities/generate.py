@@ -9,14 +9,12 @@ def generate_basic_trace_from_grid(n, Vp, Te, vsweep, S=2e-6, return_grids=False
 
     # n = numpy array of density in m^-3
     # Vp = numpy array of plasma potential in V
-    # Te = numpy array of temperatures in eV
+    # Te = numpy array of temperatures in J
     # vwseep = numpy array of sweep voltages in V
     # S = effective area of probe in m^2
 
     me = 9.109e-31
     e = 1.602e-19
-
-    # Te = Te * e  # convert to Joules
 
     # make grid from inputs
     n_grid, Vp_grid, Te_grid, vsweep_grid = np.meshgrid(n, Vp, Te, vsweep, indexing='ij')
