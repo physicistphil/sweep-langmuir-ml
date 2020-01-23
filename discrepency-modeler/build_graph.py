@@ -120,31 +120,34 @@ def make_phys_nn(hyperparams):
             # Crop the output down to match the input.
             ae_output = tf.identity(ae_mean[:, :, 7:507, :], name="output")
 
-        # Physical model branch
-        S = 2e-6  # Area of the probe in m^2
-        me = 9.109e-31  # Mass of electron
-        e = 1.602e-19  # Elementary charge
-        # Physical prefactor for the sweep equation
-        physical_prefactor = (e ** (3 / 2)) / np.sqrt(2 * np.pi * me)
-        norm_ne_factor = 1e17  # per m^3
-        norm_Vp_factor = 1  # Vp tends to be on the order of 10--this should be fine
-        norm_Te_factor = 1  # Temperatue is in eV
-        norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
-        epsilon = 1e-12
         with tf.variable_scope("phys"):
+            # Physical model branch
+            # This first portion is a NN layer to translate the latent space representation to a
+            #   physical one.
             # Size goes: [number of examples, height * width * filters]
             phys_flattened = tf.reshape(layer_pool5, [-1, 2 * middle_size * filters])
             phys_dense0 = dense_layer(phys_flattened, hyperparams['n_phys_inputs'],
                                       name="layer_dense0")
             # Constrain to guarantee positive numbers (or else NaNs appear from sqrt).
-            phys_dense0_activation = tf.nn.elu(phys_dense0) + 1 + epsilon
+            epsilon = 1e-12
+            phys_dense0_activation = tf.nn.elu(phys_dense0) + epsilon
 
             # This is analytical simple Langmuir sweep. See generate.py for a better explanation.
             # Scale the input parameters so that the network parameters are sane values,
             #   but use the computed values so that it cannot hallucinate a different trace (maybe?)
             # This implementation of the analytical langmuir sweep uses unconventional units
-            #   (see above norm factors)
-            phys_input = tf.identity(phys_dense0_activation * norm_factors, name="input")
+            #   (take note of the norm factors)
+            S = 2e-6  # Area of the probe in m^2
+            me = 9.109e-31  # Mass of electron
+            e = 1.602e-19  # Elementary charge
+            # Physical prefactor for the sweep equation
+            physical_prefactor = (e ** (3 / 2)) / np.sqrt(2 * np.pi * me)
+            # norm_ne_factor = 1e17  # per m^3
+            norm_ne_factor = 1  # per m^3
+            norm_Vp_factor = 1  # Vp tends to be on the order of 10--this should be fine
+            norm_Te_factor = 1  # Temperatue is in eV
+            norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
+            phys_input = tf.exp(phys_dense0_activation * norm_factors, name="input")
             # Lanmguir sweep calculations.
             # You need the explicit end index to preserve that dimension to enable broadcasting.
             I_esat = S * phys_input[:, 0:1] * physical_prefactor
