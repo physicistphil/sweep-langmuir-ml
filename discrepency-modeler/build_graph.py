@@ -114,7 +114,7 @@ def make_phys_nn(hyperparams):
             ae_mean = tf.reduce_mean(ae_upconv7_activation, axis=(3), keep_dims=True)
 
             # ae_conv_reduce = conv_layer(ae_upconv5_activation, name="ae_conv_reduce",
-                                        # kernel_size=(1, 1), filters=1, strides=(1, 1))
+            #                           # kernel_size=(1, 1), filters=1, strides=(1, 1))
             # ae_conv_reduce_activation = (batch_norm(ae_conv_reduce))
 
             # Crop the output down to match the input.
@@ -130,37 +130,42 @@ def make_phys_nn(hyperparams):
                                       name="layer_dense0")
             # Constrain to guarantee positive numbers (or else NaNs appear from sqrt).
             epsilon = 1e-12
+            # I've found that elu works best.
             phys_dense0_activation = tf.nn.elu(phys_dense0) + epsilon
 
             # This is analytical simple Langmuir sweep. See generate.py for a better explanation.
-            # Scale the input parameters so that the network parameters are sane values,
-            #   but use the computed values so that it cannot hallucinate a different trace (maybe?)
-            # This implementation of the analytical langmuir sweep uses unconventional units
-            #   (take note of the norm factors)
+            # Te is in eV in this implementation.
             S = 2e-6  # Area of the probe in m^2
             me = 9.109e-31  # Mass of electron
             e = 1.602e-19  # Elementary charge
             # Physical prefactor for the sweep equation
             physical_prefactor = (e ** (3 / 2)) / np.sqrt(2 * np.pi * me)
-            # norm_ne_factor = 1e17  # per m^3
-            norm_ne_factor = 1  # per m^3
-            norm_Vp_factor = 1  # Vp tends to be on the order of 10--this should be fine
-            norm_Te_factor = 1  # Temperatue is in eV
+            # Scale the input parameters so that the network parameters are sane values.
+            norm_ne_factor = 1e17  # per m^3
+            norm_Vp_factor = 20  # Vp tends to be on the order of 10--this should be fine
+            norm_Te_factor = 5  # Temperature is in eV
             norm_factors = [norm_ne_factor, norm_Vp_factor, norm_Te_factor]
-            phys_input = tf.exp(phys_dense0_activation * norm_factors, name="input")
-            # Lanmguir sweep calculations.
+            phys_input = tf.identity(phys_dense0_activation * norm_factors, name="input")
             # You need the explicit end index to preserve that dimension to enable broadcasting.
-            I_esat = S * phys_input[:, 0:1] * physical_prefactor
-            current = (I_esat * tf.sqrt(phys_input[:, 2:3]) *
-                       tf.exp(-(phys_input[:, 1:2] - X[:, 0:hyperparams['n_inputs']]) /
-                              phys_input[:, 2:3]))
-            esat_condition = tf.less(phys_input[:, 1:2], X[:, 0:hyperparams['n_inputs']])
+            ne = phys_input[:, 0:1]
+            Vp = phys_input[:, 1:2]
+            Te = phys_input[:, 2:3]
+            # Lanmguir sweep calculations start here.
+            I_esat = S * ne * physical_prefactor
+            # Need the X_ptp and X_mean to scale the vsweep to original values.
+            vsweep = (X[:, 0:hyperparams['n_inputs']] * X_ptp[0:hyperparams['n_inputs']] +
+                      X_mean[0:hyperparams['n_inputs']])
+            # My god do exponents screw up gradient descent.
+            current = (I_esat * tf.sqrt(Te) * tf.exp(-(Vp - vsweep) / Te))
+            esat_condition = tf.less(Vp, vsweep)
             # Need the _v2 to have good broadcasting support (requires TF >= 1.14).
-            esat_filled = tf.where_v2(esat_condition, current, I_esat)
+            esat_filled = tf.where_v2(esat_condition, I_esat * tf.sqrt(Te), current)
 
-            # Output to optimize on.
-            phys_output = ((tf.identity(esat_filled, name="output") -
-                            X_mean[hyperparams['n_inputs']:]) / X_ptp[hyperparams['n_inputs']:])
+            # This is the output given to the user.
+            phys_output = tf.identity(esat_filled, name="output")
+            # Output to optimize on. Scale to match input.
+            phys_output_scaled = ((phys_output - X_mean[hyperparams['n_inputs']:]) /
+                                  X_ptp[hyperparams['n_inputs']:])
 
     with tf.variable_scope("loss"):
         with tf.variable_scope("ae"):
@@ -168,7 +173,7 @@ def make_phys_nn(hyperparams):
             ae_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             ae_loss_total = tf.add_n([ae_loss_base] + ae_loss_reg, name="loss_total")
         with tf.variable_scope("phys"):
-            phys_loss_base = tf.nn.l2_loss(phys_output - X[:, hyperparams['n_inputs']:],
+            phys_loss_base = tf.nn.l2_loss(phys_output_scaled - X[:, hyperparams['n_inputs']:],
                                            name="loss_base")
             phys_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             phys_loss_total = tf.add_n([phys_loss_base] + phys_loss_reg, name="loss_total")
@@ -191,7 +196,7 @@ def make_phys_nn(hyperparams):
         ae_grads = ae_opt.compute_gradients(ae_loss_total)
 
         phys_grads, pvars = zip(*phys_opt.compute_gradients(phys_loss_total, phys_vars))
-        # phys_grads, _ = tf.clip_by_global_norm(phys_grads, 1.0)
+        phys_grads, _ = tf.clip_by_global_norm(phys_grads, 1.0)
 
         ae_training_op = ae_opt.apply_gradients(ae_grads)
         phys_training_op = phys_opt.apply_gradients(zip(phys_grads, pvars))
