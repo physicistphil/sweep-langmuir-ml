@@ -20,13 +20,6 @@ def make_phys_nn(hyperparams):
                          .l2_regularizer(hyperparams['l2_scale']),
                          )
 
-    upconv_layer = partial(tf.layers.conv2d_transpose,
-                           padding='same', activation=None,
-                           kernel_initializer=tf.contrib.layers
-                           .variance_scaling_initializer(seed=hyperparams['seed']),
-                           kernel_regularizer=tf.contrib.layers
-                           .l2_regularizer(hyperparams['l2_scale']))
-
     pool_layer = partial(tf.layers.max_pooling2d, padding='same')
 
     dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
@@ -81,45 +74,6 @@ def make_phys_nn(hyperparams):
             layer_pool5 = pool_layer(layer_conv5_activation, name="layer_pool5",
                                      pool_size=(1, 5), strides=(1, 2))
 
-        # Autoencoding branch
-        with tf.variable_scope("ae"):
-            ae_upconv2 = upconv_layer(layer_pool5, name="layer_upconv2",
-                                      kernel_size=(2, 5), filters=filters, strides=(1, 2))
-            ae_upconv2_activation = tf.nn.elu(batch_norm(ae_upconv2))
-
-            ae_upconv3 = upconv_layer(ae_upconv2_activation, name="layer_upconv3",
-                                      kernel_size=(2, 5), filters=filters, strides=(1, 2))
-            ae_upconv3_activation = tf.nn.elu(batch_norm(ae_upconv3))
-
-            ae_upconv4 = upconv_layer(ae_upconv3_activation, name="layer_upconv4",
-                                      kernel_size=(2, 5), filters=filters, strides=(1, 2))
-            ae_upconv4_activation = tf.nn.elu(batch_norm(ae_upconv4))
-
-            ae_upconv5 = upconv_layer(ae_upconv4_activation, name="layer_upconv5",
-                                      kernel_size=(2, 5), filters=filters, strides=(1, 2),
-                                      padding='same')
-            ae_upconv5_activation = tf.nn.elu(batch_norm(ae_upconv5))
-
-            ae_upconv6 = upconv_layer(ae_upconv5_activation, name="layer_upconv6",
-                                      kernel_size=(2, 5), filters=filters, strides=(1, 2),
-                                      padding='same')
-            ae_upconv6_activation = tf.nn.elu(batch_norm(ae_upconv6))
-
-            ae_upconv7 = upconv_layer(ae_upconv6_activation, name="layer_upconv7",
-                                      kernel_size=(2, 5), filters=filters, strides=(1, 2),
-                                      padding='same')
-            # ae_upconv7_activation = tf.nn.elu(batch_norm(ae_upconv7))
-
-            ae_upconv7_activation = (batch_norm(ae_upconv7))
-            ae_mean = tf.reduce_mean(ae_upconv7_activation, axis=(3), keep_dims=True)
-
-            # ae_conv_reduce = conv_layer(ae_upconv5_activation, name="ae_conv_reduce",
-            #                           # kernel_size=(1, 1), filters=1, strides=(1, 1))
-            # ae_conv_reduce_activation = (batch_norm(ae_conv_reduce))
-
-            # Crop the output down to match the input.
-            ae_output = tf.identity(ae_mean[:, :, 7:507, :], name="output")
-
         with tf.variable_scope("phys"):
             # Physical model branch
             # This first portion is a NN layer to translate the latent space representation to a
@@ -167,11 +121,6 @@ def make_phys_nn(hyperparams):
             phys_output_scaled = ((phys_output - X_mean[hyperparams['n_inputs']:]) /
                                   X_ptp[hyperparams['n_inputs']:])
 
-    with tf.variable_scope("loss"):
-        with tf.variable_scope("ae"):
-            ae_loss_base = tf.nn.l2_loss(ae_output - X_reshaped, name="loss_base")
-            ae_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            ae_loss_total = tf.add_n([ae_loss_base] + ae_loss_reg, name="loss_total")
         with tf.variable_scope("phys"):
             phys_loss_base = tf.nn.l2_loss(phys_output_scaled - X[:, hyperparams['n_inputs']:],
                                            name="loss_base")
@@ -179,28 +128,15 @@ def make_phys_nn(hyperparams):
             phys_loss_total = tf.add_n([phys_loss_base] + phys_loss_reg, name="loss_total")
 
     with tf.variable_scope("train"):
-        ae_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
-                                                      hyperparams['momentum'], use_nesterov=True)
-
-        # If we want to freeze the autoencoder while training, only train on infer-scoped variables.
-        # We also want to train the batch normalization terms so that the distribution of the
-        #   synthetic traces can be capture in the first part of the autoencoder network.
-        if hyperparams['freeze_ae']:
-            phys_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-                                          scope=".+(batch_normalization).+|.+(phys).+")
-        else:
-            phys_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+        phys_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
         phys_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                         hyperparams['momentum'], use_nesterov=True)
 
-        ae_grads = ae_opt.compute_gradients(ae_loss_total)
-
         phys_grads, pvars = zip(*phys_opt.compute_gradients(phys_loss_total, phys_vars))
+        # Gradient clipping seems to be an absolute necessity for training with an exp function.
         phys_grads, _ = tf.clip_by_global_norm(phys_grads, 1.0)
 
-        ae_training_op = ae_opt.apply_gradients(ae_grads)
         phys_training_op = phys_opt.apply_gradients(zip(phys_grads, pvars))
 
-        return (ae_training_op, phys_training_op, X, X_mean, X_ptp, training, ae_output,
-                phys_output, ae_loss_total, phys_loss_total, ae_grads, zip(phys_grads, pvars),
-                phys_input)
+        return (phys_training_op, X, X_mean, X_ptp, training, phys_output, phys_loss_total,
+                zip(phys_grads, pvars), phys_input)

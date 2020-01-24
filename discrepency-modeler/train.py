@@ -59,14 +59,9 @@ def train(hyperparams):
     data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
 
     # Build the models to train on.
-    (ae_training_op, phys_training_op, X, X_mean, X_ptp, training, ae_output, phys_output,
-     ae_loss_total, phys_loss_total, ae_grads, phys_grads,
+    (phys_training_op, X, X_mean, X_ptp, training, phys_output, phys_loss_total, phys_grads,
      phys_input) = build_graph.make_phys_nn(hyperparams)
 
-    # for grad, var in ae_grads:
-    #     if grad is not None and var is not None:
-    #         tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
-    #         tf.compat.v1.summary.histogram("variables/" + var.name, var)
     for grad, var in phys_grads:
         if grad is not None and var is not None:
             tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
@@ -97,11 +92,14 @@ def train(hyperparams):
                 sess.run([phys_training_op, extra_update_ops],
                          feed_dict={X: data_batch, training: True,
                                     X_mean: data_mean, X_ptp: data_ptp})
-                if i == 0 and epoch % 10 == 0 and False:
-                    summary = sess.run(summaries_op,
-                                       feed_dict={X: data_train[0:batch_size], training: True,
-                                                  X_mean: data_mean, X_ptp: data_ptp})
-                    summary_writer.add_summary(summary, epoch)
+                if i == 0 and epoch % 10 == 0:
+                    try:
+                        summary = sess.run(summaries_op,
+                                           feed_dict={X: data_train[0:batch_size], training: True,
+                                                      X_mean: data_mean, X_ptp: data_ptp})
+                        summary_writer.add_summary(summary, epoch)
+                    except tf.errors.InvalidArgumentError:
+                        pass
             if (data_train.shape[0] % batch_size) != 0:
                 data_batch = data_train[(i + 1) * batch_size:]
                 sess.run([phys_training_op, extra_update_ops],
@@ -112,10 +110,6 @@ def train(hyperparams):
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
                   "]", end="")
             print("\r", end="")
-
-            # loss_test = (loss_total.eval(feed_dict={X: X_test, y: y_test}) /
-            #              X_test.shape[0])
-            # print("loss: {}, epoch: {}".format(loss_test, epoch))
 
             if epoch % 10 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
@@ -151,11 +145,11 @@ def train(hyperparams):
             # Make plots comparing learned parameters to the actual ones.
             if epoch % 100 == 0:  # Changed this to 100 from 1000 because we have much more data.
 
-                fig_compare_ae, axes_ae = plot_utils. \
+                fig_compare_phys, axes_phys = plot_utils. \
                     phys_plot_comparison(sess, data_test[0:batch_size], data_mean, data_ptp,
                                          X, X_mean, X_ptp, phys_output, phys_input,
                                          hyperparams)
-                fig_compare_ae.savefig(fig_path + "phys_compare-epoch-{}".format(epoch))
+                fig_compare_phys.savefig(fig_path + "phys_compare-epoch-{}".format(epoch))
 
                 # Close all the figures so that memory can be freed.
                 plt.close('all')
@@ -210,11 +204,11 @@ if __name__ == '__main__':
                    # 'size_lh': 20,
                    'n_phys_inputs': 3,
                    'filters': 3,
-                   'size_li': 50,
-                   'switch_num': 1,  # Number of epochs to train ae or inferer before switching
-                   'freeze_ae': False,
+                   # 'size_li': 50,
+                   # 'switch_num': 1,  # Number of epochs to train ae or inferer before switching
+                   # 'freeze_ae': False,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-7,
+                   'learning_rate': 5e-7,
                    'momentum': 0.99,
                    'l2_scale': 0.1,
                    'batch_size': 1024,
@@ -227,7 +221,7 @@ if __name__ == '__main__':
                    'offset_scale': 0.0,
                    'noise_scale': 0.4,
                    # Training info
-                   'steps': 1000,
+                   'steps': 5000,
                    'seed': 42,
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
