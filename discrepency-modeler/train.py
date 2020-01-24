@@ -138,10 +138,8 @@ def train(hyperparams):
                 phys_numbers = phys_input.eval(feed_dict={X: data_train[0:batch_size],
                                                           X_mean: data_mean,
                                                           X_ptp: data_ptp})
-                print("n = {:3.1e} / cm^3 \tVp = {:.1f} V \t\
-                      Te = {:.1f} eV".format(phys_numbers[10, 0] / 1e6,
-                                             phys_numbers[10, 1],
-                                             phys_numbers[10, 2]))
+                print("n = {:3.1e} / cm^3 \tVp = {:.1f} V \tTe = {:.1f} eV"
+                      .format(phys_numbers[10, 0] / 1e6, phys_numbers[10, 1], phys_numbers[10, 2]))
 
                 if phys_loss_test < phys_best_loss:
                     phys_best_loss = phys_loss_test
@@ -216,7 +214,7 @@ if __name__ == '__main__':
                    'switch_num': 1,  # Number of epochs to train ae or inferer before switching
                    'freeze_ae': False,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-6,
+                   'learning_rate': 1e-7,
                    'momentum': 0.99,
                    'l2_scale': 0.1,
                    'batch_size': 1024,
