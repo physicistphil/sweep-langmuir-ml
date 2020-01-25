@@ -78,17 +78,25 @@ def train(hyperparams):
     config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
 
-    # ---------------------- Begin training ---------------------- #
+    restore = True
+
     with tf.compat.v1.Session(config=config) as sess:
+
+        # ---------------------- Initialize everything ---------------------- #
         init.run()
         # Initialize the data iterator. We're not initalizing in each epoch because we want to
         #   keep generating new data from the generator.
         sess.run(model.data_iter.initializer)
 
+        if restore:
+            model.load_dense_model(sess, "./saved_models/model-{}-epoch-{}.ckpt"
+                                   .format(20200125213903, 200))
+
         summaries_op = tf.compat.v1.summary.merge_all()
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
-        best_loss = 1000
+        best_loss = np.finfo(np.float32).max
 
+        # ---------------------- Begin training ---------------------- #
         for epoch in range(hyperparams['steps']):
             # Train the physics portion of the network.
             # We have no testing loss because our data is randomly generated (no overfitting)
@@ -110,6 +118,7 @@ def train(hyperparams):
                   .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train), end="")
             print("\r", end="")
 
+            # At multiples of 10, we take a break and save our model.
             if epoch % 10 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
                 print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}")
@@ -127,48 +136,24 @@ def train(hyperparams):
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/model-{}-epoch-{}.ckpt".format(now, epoch))
 
-            # Make plots comparing learned parameters to the actual ones.
-            if epoch % 100 == 0:  # Changed this to 100 from 1000 because we have much more data.
-
-                # fig_compare_ae, axes_ae = plot_utils. \
-                #     phys_plot_comparison(sess, data_test[0:batch_size], data_mean, data_ptp,
-                #                          X, X_mean, X_ptp, phys_output, phys_input,
-                #                          hyperparams)
-                # fig_compare_ae.savefig(fig_path + "phys_compare-epoch-{}".format(epoch))
-
-                # Close all the figures so that memory can be freed.
-                plt.close('all')
-
         print("[" + "=" * 20 + "]", end="\t")
-
-        # ---------------------- Log results ---------------------- #
-        wandb.log({'loss_train': loss_train}, step=epoch)
-
         print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}")
               .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train))
 
+        # ---------------------- Log results, make figures ---------------------- #
+        wandb.log({'loss_train': loss_train}, step=epoch)
+        model.plot_comparison(sess, hyperparams, fig_path, epoch)
         saver.save(sess, "./saved_models/model-{}-final.ckpt".format(now))
 
-        # ---------------------- Make figures ---------------------- #
-        # fig_compare_phys, axes_phys = plot_utils. \
-        #     phys_plot_comparison(sess, data_test[0:batch_size], data_mean, data_ptp,
-        #                          X, X_mean, X_ptp, phys_output, phys_input, hyperparams)
-        # fig_compare_phys.savefig(fig_path + "phys_compare".format(now))
-        # wandb.log({"phys_comaprison_plot": [wandb.Image(fig_compare_phys)]}, step=epoch)
-
-        # Show the worst performing fits (may not implement this).
-        # fig_worst, axes = plot_utils.plot_worst(sess, X_train, X, output, hyperparams)
-        # fig_worst.savefig("plots/fig-{}/worst".format(now))
-
         # Log tensorflow checkpoints (takes up a lot of space).
-        # final_checkpoint_name = "./saved_models/model-{}-final.ckpt".format(now)
-        # wandb.save(final_checkpoint_name + ".index")
-        # wandb.save(final_checkpoint_name + ".meta")
-        # wandb.save(final_checkpoint_name + ".data-00000-of-00001")
-        # best_checkpoint_name = "./saved_models/model-{}-best.ckpt".format(now)
-        # wandb.save(best_checkpoint_name + ".index")
-        # wandb.save(best_checkpoint_name + ".meta")
-        # wandb.save(best_checkpoint_name + ".data-00000-of-00001")
+        final_checkpoint_name = "./saved_models/model-{}-final.ckpt".format(now)
+        wandb.save(final_checkpoint_name + ".index")
+        wandb.save(final_checkpoint_name + ".meta")
+        wandb.save(final_checkpoint_name + ".data-00000-of-00001")
+        best_checkpoint_name = "./saved_models/model-{}-best.ckpt".format(now)
+        wandb.save(best_checkpoint_name + ".index")
+        wandb.save(best_checkpoint_name + ".meta")
+        wandb.save(best_checkpoint_name + ".data-00000-of-00001")
 
 
 if __name__ == '__main__':
@@ -185,7 +170,7 @@ if __name__ == '__main__':
                    'l2_scale': 0.0,
                    'batch_size': 256,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
-                   'num_batches': 8,  # Number of batches trained in each epoch.
+                   'num_batches': 256,  # Number of batches trained in each epoch.
                    # Training info
                    'steps': 500,
                    'seed': 42,
