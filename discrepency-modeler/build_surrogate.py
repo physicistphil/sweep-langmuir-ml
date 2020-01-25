@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-class DenseNN:
+class Model:
     def build_data_pipeline(self, hyperparams, generator):
         with tf.name_scope("pipeline"):
             input_size = hyperparams['n_phys_inputs'] + hyperparams['n_inputs']
@@ -23,7 +23,7 @@ class DenseNN:
     # Pass X and y as parameters so that creation of the dataset or input is guaranteed to precede
     #   NN graph construction. Building the main graph separately enables easier loading of
     #   pretrained models.
-    def build_NN(self, hyperparams, X, y):
+    def build_dense_NN(self, hyperparams, X, y):
         # Training boolean placeholder is necessary for batch normalization.
         self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
         dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
@@ -104,9 +104,11 @@ class DenseNN:
             self.grads = self.optimizer.compute_gradients(self.loss_total)
             self.training_op = self.optimizer.apply_gradients(self.grads)
 
+    # Load the neural network model to be used as a step in another model.
     def load_model(self, model_path):
         pass
 
+    # A quick diagnostic function to make sure the tensor shapes are correct.
     def check_sizes(self, sess):
         X_phys_repeated, X_sweep, X_repeated, X, y = sess.run([self.X_phys_repeated,
                                                                self.X_sweep, self.X_repeated,
