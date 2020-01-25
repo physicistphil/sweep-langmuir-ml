@@ -105,8 +105,11 @@ class Model:
             self.training_op = self.optimizer.apply_gradients(self.grads)
 
     # Load the neural network model to be used as a step in another model.
-    def load_model(self, model_path):
-        pass
+    # The graph (built by build_dense_NN) must already be constructed.
+    def load_dense_model(self, sess, model_path):
+        restorer = tf.train.Saver()
+        restorer.restore(sess, model_path)
+        print("Model {} has been loaded.".format(model_path))
 
     # A quick diagnostic function to make sure the tensor shapes are correct.
     def check_sizes(self, sess):
@@ -137,7 +140,7 @@ class Model:
         fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
         fig.suptitle('Comparison of ')
         np.random.seed(hyperparams['seed'])
-        randidx = np.random.randint(data_y.shape[1], size=(3, 4))
+        randidx = np.random.randint(data_y.shape[0], size=(3, 4))
 
         for x, y in np.ndindex((3, 4)):
             axes[x, y].plot(data_y[randidx[x, y]], label="Analytic")
