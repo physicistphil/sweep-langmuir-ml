@@ -88,7 +88,6 @@ def train(hyperparams):
         best_loss = 1000
 
         for epoch in range(hyperparams['steps']):
-
             # Train the physics portion of the network.
             # We have no testing loss because our data is randomly generated (no overfitting)
             for i in range((hyperparams['num_batches'])):
@@ -104,22 +103,24 @@ def train(hyperparams):
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
-                  "]", end="")
+                  "]", end="\t")
+            print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}")
+                  .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train), end="")
             print("\r", end="")
 
             if epoch % 10 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
-
-                wandb.log({'loss_train': loss_train}, step=epoch)
-
                 print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}")
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train))
+                print("[" + " " * 5 + "Saving...." + " " * 5 + "]", end="\r")
 
+                wandb.log({'loss_train': loss_train}, step=epoch)
+                model.plot_comparison(sess, hyperparams, fig_path, epoch)
                 if best_loss < best_loss:
                     best_loss = best_loss
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
 
-                model.plot_comparison(sess, hyperparams, fig_path, epoch)
+                print("[" + " " * 20 + "]", end="\r")
 
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/model-{}-epoch-{}.ckpt".format(now, epoch))
@@ -182,7 +183,7 @@ if __name__ == '__main__':
                    'l2_scale': 0.0,
                    'batch_size': 256,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
-                   'num_batches': 8,  # Number of batches trained in each epoch.
+                   'num_batches': 256,  # Number of batches trained in each epoch.
                    # Training info
                    'steps': 500,
                    'seed': 42,
