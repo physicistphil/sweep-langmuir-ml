@@ -42,12 +42,14 @@ def trace_generator(hyperparams, limit=-1):
         # print("Generating {}".format(i))
         # Change the seed so that new curves are created with each call of the generator, but
         #   determinism is preserved.
-        hyperparams['seed'] = hyperparams['seed'] + i
+        # We must not modify hyperparams or else we'll end up with a seed that exceeds 2^32 - 1.
+        #   See https://oeis.org/A000217
+        new_hyperparams = {'seed': hyperparams['seed'] + i, 'n_inputs': hyperparams['n_inputs']}
         i += 1
         ne, Vp, Te, vsweep, current \
             = generate.generate_random_traces_from_array(ne_range, Vp_range, Te_range,
                                                          vsweep_lower_range, vsweep_upper_range,
-                                                         hyperparams, size, S=S)
+                                                         new_hyperparams, size, S=S)
         yield np.hstack((ne[:, np.newaxis], Vp[:, np.newaxis], Te[:, np.newaxis], vsweep)), current
 
 
