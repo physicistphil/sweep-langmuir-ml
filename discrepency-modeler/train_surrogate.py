@@ -96,9 +96,13 @@ def train(hyperparams):
             for i in range((hyperparams['num_batches'])):
                 _, _, loss_train = sess.run([model.training_op, extra_update_ops, model.loss_total],
                                             feed_dict={model.training: True})
+
                 if i == 0 and epoch % 10 == 0:
-                    summary = sess.run(summaries_op, feed_dict={model.training: True})
-                    summary_writer.add_summary(summary, epoch)
+                    try:
+                        summary = sess.run(summaries_op, feed_dict={model.training: True})
+                        summary_writer.add_summary(summary, epoch)
+                    except tf.errors.InvalidArgumentError:
+                        print("NaN in summary histogram; no summary generated.")
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
@@ -169,19 +173,20 @@ def train(hyperparams):
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 256,  # Number of points to define the voltage sweep.
                    'n_phys_inputs': 3,  # n_e, V_p and T_e (for now).
-                   'size_l1': 10,
-                   'size_l2': 10,
+                   'size_l1': 50,
+                   'size_l2': 50,
                    # 'size_lh': 20,
                    'n_output': 256,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-6,
+                   'learning_rate': 1e-9,
                    'momentum': 0.99,
-                   'l2_scale': 0.1,
-                   'batch_size': 1024,
+                   'batch_momentum': 0.99,
+                   'l2_scale': 0.0,
+                   'batch_size': 16,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
                    'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info
-                   'steps': 100,
+                   'steps': 500,
                    'seed': 42,
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
