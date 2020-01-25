@@ -60,7 +60,7 @@ def train(hyperparams):
     # Build the model to train.
     model = build_surrogate.DenseNN()
     model.build_data_pipeline(hyperparams, trace_generator)
-    model.build_NN(hyperparams, model.data_input, model.data_output)
+    model.build_NN(hyperparams, model.data_X, model.data_y)
 
     # Log values of gradients and variables for tensorboard.
     for grad, var in model.grads:
@@ -78,8 +78,6 @@ def train(hyperparams):
 
     # ---------------------- Begin training ---------------------- #
     with tf.compat.v1.Session(config=config) as sess:
-        batch_size = hyperparams['batch_size']
-
         init.run()
         # Initialize the data iterator. We're not initalizing in each epoch because we want to
         #   keep generating new data from the generator.
@@ -178,11 +176,11 @@ if __name__ == '__main__':
                    # 'size_lh': 20,
                    'n_output': 256,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-9,
+                   'learning_rate': 1e-7,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'l2_scale': 0.0,
-                   'batch_size': 16,  # Actual batch size is n_inputs * batch_size (see build_NN)
+                   'batch_size': 256,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
                    'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info

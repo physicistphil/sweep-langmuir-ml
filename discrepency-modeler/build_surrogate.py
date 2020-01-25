@@ -18,7 +18,7 @@ class DenseNN:
             self.dataset = self.dataset.prefetch(12)  # Prefetch 2 batches
 
             self.data_iter = self.dataset.make_initializable_iterator()
-            self.data_input, self.data_output = self.data_iter.get_next()
+            self.data_X, self.data_y = self.data_iter.get_next()
 
     # Pass X and y as parameters so that creation of the dataset or input is guaranteed to precede
     #   NN graph construction. Building the main graph separately enables easier loading of
@@ -39,34 +39,31 @@ class DenseNN:
             #   should simplify the model and make it easier to train.
             n_phys_inputs = hyperparams['n_phys_inputs']
             n_inputs = hyperparams['n_inputs']
-            # Get rid of excess dimensions and batch norm them.
-            X = tf.squeeze(X)
-            y = tf.squeeze(y)
+            X = tf.squeeze(X)  # Get rid of excess dimensions.
             self.X_phys_repeated = tf.expand_dims(X[:, 0:n_phys_inputs], 1)
-            # Size of physical parameters tensor is now [batch_size, 1, n_phys_input]
+            # Size of physical parameters tensor is now [batch_size, 1, n_phys_input].
             # Repeat ne, Vp, Te over axis 1.
             self.X_phys_repeated = tf.tile(self.X_phys_repeated, [1, n_inputs, 1])
-            # Size is now [batch_size, n_inputs, n_phys_inputs]
+            # Size is now [batch_size, n_inputs, n_phys_inputs].
             self.X_sweep = tf.expand_dims(X[:, n_phys_inputs:], 2)
-            # Size of sweep tensor is now [batch_size, n_inputs, 1]
+            # Size of sweep tensor is now [batch_size, n_inputs, 1].
             # Stack the physical parameters tensor and vsweep tensor together.
             self.X_repeated = tf.concat([self.X_phys_repeated, self.X_sweep], 2)
-            # Size is now [batch_size, n_inputs, n_phys_inputs + 1]
+            # Size is now [batch_size, n_inputs, n_phys_inputs + 1].
             X = self.X_repeated
-            # Match dimensions of y with X. Shape will be [batch_size, n_inputs, 1].
-            y = tf.expand_dims(y, 2)
             # Our network will now be fed tensors of [batch_size * n_inputs, 4] and will output
             #   and will output tensors of [batch_size * n_inputs, 1].
             X = (tf.reshape(X, [-1, n_phys_inputs + 1]))
-            y = (tf.reshape(y, [-1, 1]))
-
             # Rescale so training is easier.
             self.X_scalefactor = tf.constant([1e-17, 1e-1, 1e19, 1e-1])
-            self.y_scalefactor = tf.constant([1e2])
             X = X * self.X_scalefactor
-            y = y * self.y_scalefactor
-
             self.X = X
+
+            # Match dimensions of y with X. Shape will be [batch_size, n_inputs, 1].
+            y = (tf.reshape(y, [-1, 1]))
+            # Rescale for easier training.
+            self.y_scalefactor = tf.constant([1e2])
+            y = y * self.y_scalefactor
             self.y = y
 
         size_l1 = hyperparams['size_l1']
@@ -90,11 +87,12 @@ class DenseNN:
             self.nn_layer_out = dense_layer(self.nn_activ4, n_output, name="nn_layer_out")
             self.nn_activ_out = tf.identity(batch_norm(self.nn_layer_out), name="nn_activ_out")
 
-            self.nn_output = tf.identity(self.nn_activ_out, name="output")
+            # The output of the network should be a complete sweep (which is of length n_inputs)
+            self.output = tf.reshape(self.nn_activ_out, [-1, n_inputs], name="output")
 
         with tf.variable_scope("loss"):
-            self.loss_base = tf.nn.l2_loss(self.nn_output * self.y_scalefactor - y,
-                                           name="loss_base")
+            self.loss_base = tf.nn.l2_loss(self.nn_activ_out * self.y_scalefactor - y,
+                                           name="loss_base") / hyperparams['batch_size']
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_base] + self.loss_reg, name="loss_total")
 
@@ -127,21 +125,21 @@ class DenseNN:
     def plot_comparison(self, sess, hyperparams, save_path, epoch):
         # print("Plotting comparison")
 
-        # Shape of these data_output is [1, batch_size, n_inputs]
-        # Shape of nn_output is [batch_size * n_inputs, 1]
-        data_output, nn_output = sess.run([self.data_output, self.nn_output],
-                                          feed_dict={self.training: False})
-        nn_output = np.reshape(nn_output, (1, -1, hyperparams['n_inputs']))
+        # Shape of data_y without squeeze is [1, batch_size, n_inputs]
+        # Shape of nn_output is [batch_size, n_inputs]
+        data_y, model_output = sess.run([self.data_y, self.output],
+                                        feed_dict={self.training: False})
+        data_y = np.squeeze(data_y)
 
         # generated_trace = output_test
         fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
         fig.suptitle('Comparison of ')
         np.random.seed(hyperparams['seed'])
-        randidx = np.random.randint(data_output.shape[1], size=(3, 4))
+        randidx = np.random.randint(data_y.shape[1], size=(3, 4))
 
         for x, y in np.ndindex((3, 4)):
-            axes[x, y].plot(data_output[0, randidx[x, y]], label="Analytic")
-            axes[x, y].plot(nn_output[0, randidx[x, y]], label="Surrogate")
+            axes[x, y].plot(data_y[randidx[x, y]], label="Analytic")
+            axes[x, y].plot(model_output[randidx[x, y]], label="Surrogate")
             axes[x, y].set_title("Index {}".format(randidx[x, y]))
         axes[0, 0].legend()
         fig.savefig(save_path + 'surrogate-compare-epoch-{}'.format(epoch))
