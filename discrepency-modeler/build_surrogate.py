@@ -23,6 +23,7 @@ class Model:
     # Pass X and y as parameters so that creation of the dataset or input is guaranteed to precede
     #   NN graph construction. Building the main graph separately enables easier loading of
     #   pretrained models.
+    # X should have a shape like [batch_size, n_phys_inputs + vsweep]
     def build_dense_NN(self, hyperparams, X, y):
         # Training boolean placeholder is necessary for batch normalization.
         self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")

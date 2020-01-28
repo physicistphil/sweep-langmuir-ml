@@ -78,8 +78,6 @@ def train(hyperparams):
     config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
 
-    restore = True
-
     with tf.compat.v1.Session(config=config) as sess:
 
         # ---------------------- Initialize everything ---------------------- #
@@ -88,9 +86,8 @@ def train(hyperparams):
         #   keep generating new data from the generator.
         sess.run(model.data_iter.initializer)
 
-        if restore:
-            model.load_dense_model(sess, "./saved_models/model-{}-epoch-{}.ckpt"
-                                   .format(20200125213903, 200))
+        if hyperparams['restore']:
+            model.load_dense_model(sess, "./saved_models/" + hyperparams['restore_model'] + ".ckpt")
 
         summaries_op = tf.compat.v1.summary.merge_all()
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
@@ -164,16 +161,18 @@ if __name__ == '__main__':
                    # 'size_lh': 20,
                    'n_output': 256,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-7,
+                   'learning_rate': 1e-12,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
-                   'l2_scale': 0.0,
-                   'batch_size': 256,  # Actual batch size is n_inputs * batch_size (see build_NN)
+                   'l2_scale': 0.00,
+                   'batch_size': 4096,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
-                   'num_batches': 256,  # Number of batches trained in each epoch.
+                   'num_batches': 16,  # Number of batches trained in each epoch.
                    # Training info
-                   'steps': 500,
-                   'seed': 42,
+                   'steps': 1000,
+                   'seed': 16042,
+                   'restore': True,
+                   'restore_model': "model-20200127221951-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams)
