@@ -18,7 +18,7 @@ import generate
 import plot_utils
 
 # From the inferer directory
-import build_graph
+import build_analytic
 
 # weights and biases -- ML experiment tracker
 import wandb
@@ -59,10 +59,19 @@ def train(hyperparams):
     data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
 
     # Build the models to train on.
-    (phys_training_op, X, X_mean, X_ptp, training, phys_output, phys_loss_total, phys_grads,
-     phys_input) = build_graph.make_phys_nn(hyperparams)
+    model = build_analytic.Model()
+    model.build_data_pipeline(hyperparams)
+    model.build_encoder(hyperparams, model.X)
+    model.build_analytical_model(hyperparams, model.phys_dense0_activation,
+                                 model.X[:, 0:hyperparams['n_inputs']] *
+                                 model.X_ptp[0:hyperparams['n_inputs']] +
+                                 model.X_mean[0:hyperparams['n_inputs']])
+    model.build_loss(hyperparams, model.phys_output,
+                     model.X[:, hyperparams['n_inputs']:],
+                     model.X_mean[hyperparams['n_inputs']:],
+                     model.X_ptp[hyperparams['n_inputs']:])
 
-    for grad, var in phys_grads:
+    for grad, var in zip(model.phys_grads, model.pvars):
         if grad is not None and var is not None:
             tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
             tf.compat.v1.summary.histogram("variables/" + var.name, var)
@@ -82,29 +91,31 @@ def train(hyperparams):
         init.run()
         summaries_op = tf.compat.v1.summary.merge_all()
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
-        phys_best_loss = 1000
+        phys_best_loss = np.finfo(np.float32).max
 
         for epoch in range(hyperparams['steps']):
 
             # Train the physics portion of the network.
             for i in range(data_train.shape[0] // batch_size):
                 data_batch = data_train[i * batch_size:(i + 1) * batch_size]
-                sess.run([phys_training_op, extra_update_ops],
-                         feed_dict={X: data_batch, training: True,
-                                    X_mean: data_mean, X_ptp: data_ptp})
+                sess.run([model.phys_training_op, extra_update_ops],
+                         feed_dict={model.X: data_batch, model.training: True,
+                                    model.X_mean: data_mean, model.X_ptp: data_ptp})
                 if i == 0 and epoch % 10 == 0:
                     try:
                         summary = sess.run(summaries_op,
-                                           feed_dict={X: data_train[0:batch_size], training: True,
-                                                      X_mean: data_mean, X_ptp: data_ptp})
+                                           feed_dict={model.X: data_train[0:batch_size],
+                                                      model.training: True,
+                                                      model.X_mean: data_mean,
+                                                      model.X_ptp: data_ptp})
                         summary_writer.add_summary(summary, epoch)
                     except tf.errors.InvalidArgumentError:
                         pass
             if (data_train.shape[0] % batch_size) != 0:
                 data_batch = data_train[(i + 1) * batch_size:]
-                sess.run([phys_training_op, extra_update_ops],
-                         feed_dict={X: data_batch, training: True,
-                                    X_mean: data_mean, X_ptp: data_ptp})
+                sess.run([model.phys_training_op, extra_update_ops],
+                         feed_dict={model.X: data_batch, model.training: True,
+                                    model.X_mean: data_mean, model.X_ptp: data_ptp})
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
@@ -114,13 +125,13 @@ def train(hyperparams):
             if epoch % 10 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
 
-                phys_loss_train = (phys_loss_total.eval(feed_dict={X: data_train[0:batch_size],
-                                                                   X_mean: data_mean,
-                                                                   X_ptp: data_ptp}) /
+                phys_loss_train = (model.phys_loss_total.eval(feed_dict={model.X: data_train[0:batch_size],
+                                                                         model.X_mean: data_mean,
+                                                                         model.X_ptp: data_ptp}) /
                                    batch_size)
-                phys_loss_test = (phys_loss_total.eval(feed_dict={X: data_test[0:batch_size],
-                                                                  X_mean: data_mean,
-                                                                  X_ptp: data_ptp}) /
+                phys_loss_test = (model.phys_loss_total.eval(feed_dict={model.X: data_test[0:batch_size],
+                                                                        model.X_mean: data_mean,
+                                                                        model.X_ptp: data_ptp}) /
                                   batch_size)
                 wandb.log({'phys_loss_train': phys_loss_train,
                            'phys_loss_test': phys_loss_test}, step=epoch)
@@ -129,9 +140,9 @@ def train(hyperparams):
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"),
                               phys_loss_train, phys_loss_test))
 
-                phys_numbers = phys_input.eval(feed_dict={X: data_train[0:batch_size],
-                                                          X_mean: data_mean,
-                                                          X_ptp: data_ptp})
+                phys_numbers = model.phys_input.eval(feed_dict={model.X: data_train[0:batch_size],
+                                                                model.X_mean: data_mean,
+                                                                model.X_ptp: data_ptp})
                 print("n = {:3.1e} / cm^3 \tVp = {:.1f} V \tTe = {:.1f} eV"
                       .format(phys_numbers[10, 0] / 1e6, phys_numbers[10, 1], phys_numbers[10, 2]))
 
@@ -147,7 +158,7 @@ def train(hyperparams):
 
                 fig_compare_phys, axes_phys = plot_utils. \
                     phys_plot_comparison(sess, data_test[0:batch_size], data_mean, data_ptp,
-                                         X, X_mean, X_ptp, phys_output, phys_input,
+                                         model.X, model.X_mean, model.X_ptp, model.phys_output, model.phys_input,
                                          hyperparams)
                 fig_compare_phys.savefig(fig_path + "phys_compare-epoch-{}".format(epoch))
 
@@ -158,13 +169,13 @@ def train(hyperparams):
 
         # ---------------------- Log results ---------------------- #
         # calculate loss
-        phys_loss_train = (phys_loss_total.eval(feed_dict={X: data_train[0:batch_size],
-                                                           X_mean: data_mean,
-                                                           X_ptp: data_ptp}) /
+        phys_loss_train = (model.phys_loss_total.eval(feed_dict={model.X: data_train[0:batch_size],
+                                                                 model.X_mean: data_mean,
+                                                                 model.X_ptp: data_ptp}) /
                            batch_size)
-        phys_loss_test = (phys_loss_total.eval(feed_dict={X: data_test[0:batch_size],
-                                                          X_mean: data_mean,
-                                                          X_ptp: data_ptp}) /
+        phys_loss_test = (model.phys_loss_total.eval(feed_dict={model.X: data_test[0:batch_size],
+                                                                model.X_mean: data_mean,
+                                                                model.X_ptp: data_ptp}) /
                           batch_size)
         wandb.log({'phys_loss_train': phys_loss_train,
                    'phys_loss_test': phys_loss_test}, step=epoch)
@@ -178,7 +189,8 @@ def train(hyperparams):
         # ---------------------- Make figures ---------------------- #
         fig_compare_phys, axes_phys = plot_utils. \
             phys_plot_comparison(sess, data_test[0:batch_size], data_mean, data_ptp,
-                                 X, X_mean, X_ptp, phys_output, phys_input, hyperparams)
+                                 model.X, model.X_mean, model.X_ptp, model.phys_output,
+                                 model.phys_input, hyperparams)
         fig_compare_phys.savefig(fig_path + "phys_compare".format(now))
         wandb.log({"phys_comaprison_plot": [wandb.Image(fig_compare_phys)]}, step=epoch)
 
