@@ -43,7 +43,12 @@ def get_mirror_data_with_sweeps(input_size):
     data_dir = "../../data/"
 
     try:
-        dataset = np.load(data_dir + 'data_with_sweeps.npz')['dataset']
+        # Need the "if 500" so it's stll compatible with older code, but we want to be able to
+        #   use other input sizes.
+        if input_size == 500:
+            dataset = np.load(data_dir + 'data_with_sweeps.npz')['dataset']
+        else:
+            dataset = np.load(data_dir + 'data_with_sweeps_{}.npz'.format(input_size))['dataset']
     except FileNotFoundError:
         f = [lapd.File(data_dir + "09_500G_flat_sweep_vf_correct2.hdf5"),
              lapd.File(data_dir + "10_500G_7to8_750Gother_sweep_vf.hdf5"),
@@ -75,7 +80,10 @@ def get_mirror_data_with_sweeps(input_size):
         # Merge the sweep and trace together like we do for the synthetic sweeps.
         dataset = np.concatenate((data_sweep, data_trace), axis=1)
         # Cache the result on disk (NVME SSDs FTW) to save time.
-        np.savez(data_dir + 'data_with_sweeps', dataset=dataset)
+        if input_size == 500:
+            np.savez(data_dir + 'data_with_sweeps', dataset=dataset)
+        else:
+            np.savez(data_dir + 'data_with_sweeps_{}'.format(input_size), dataset=dataset)
 
     return dataset
 
