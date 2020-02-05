@@ -84,6 +84,8 @@ class Model:
                 self.phys_dense0_activation = tf.nn.elu(self.phys_dense0)
                 # Now pass off to analytical model
 
+    # Analytic input is size [batch_size, n_phys_inputs] with values of order 1.
+    # vsweep unscaled is the original values of the vsweep.
     def build_analytical_model(self, hyperparams, analytic_input, vsweep_unscaled):
         with tf.variable_scope("phys"):
             # Physical model branch
