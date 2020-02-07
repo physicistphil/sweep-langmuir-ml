@@ -146,7 +146,8 @@ def train(hyperparams):
                 print("[" + " " * 5 + "Saving...." + " " * 5 + "]", end="\r")
 
                 wandb.log({'loss_train': loss_train}, step=epoch)
-                model.plot_comparison(sess, data_input, hyperparams, fig_path, epoch)
+                model.plot_comparison(sess, analytic_model, data_input,
+                                      hyperparams, fig_path, epoch)
                 if best_loss < best_loss:
                     best_loss = best_loss
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
@@ -162,7 +163,7 @@ def train(hyperparams):
 
         # ---------------------- Log results, make figures ---------------------- #
         wandb.log({'loss_train': loss_train}, step=epoch)
-        model.plot_comparison(sess, data_input, hyperparams, fig_path, epoch)
+        model.plot_comparison(sess, analytic_model, data_input, hyperparams, fig_path, epoch)
         saver.save(sess, "./saved_models/model-{}-final.ckpt".format(now))
 
         # Log tensorflow checkpoints (takes up a lot of space).
@@ -185,21 +186,27 @@ if __name__ == '__main__':
                    'filters': 3,
                    'size_diff': 20,
                    'n_output': 256,
+                   # Loss scaling weights (please normalize)
+                   'loss_rebuilt': 0.5,  # Controls the influence of the error of the rebuilt curve
+                   'loss_theory': 0.5,  # Controls how tightly the theory must fit the original
+                   'loss_discrepancy': 1.0,  # Controls how small the discrepancy must be
+                   'l2_CNN': 0.00,
+                   'l2_discrepancy': 0.00,
+                   'l2_discrepancy': 0.00,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-7,
+                   'learning_rate': 2e-9,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
-                   'l2_scale': 0.00,
                    'batch_size': 1024,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
                    # 'num_batches': 16,  # Number of batches trained in each epoch.
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    # Training info
-                   'steps': 1000,
+                   'steps': 3000,
                    'seed': 42,
                    'restore': False,
-                   'restore_model': "model-WWWWWWWWWWWWWWW-final"
+                   'restore_model': "model-AAAAA-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams)

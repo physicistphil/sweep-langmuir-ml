@@ -15,8 +15,8 @@ class Model:
             self.data_input_sliced = self.data_input[:-2, :]
 
             self.dataset = tf.data.Dataset.from_tensor_slices(self.data_input_sliced)
-            self.dataset = self.dataset.batch(hyperparams['batch_size'])
             self.dataset = self.dataset.repeat()
+            self.dataset = self.dataset.batch(hyperparams['batch_size'])
             self.dataset = self.dataset.prefetch(4)
 
             self.data_iter = self.dataset.make_initializable_iterator()
@@ -35,7 +35,7 @@ class Model:
                              kernel_initializer=tf.contrib.layers
                              .variance_scaling_initializer(seed=hyperparams['seed']),
                              kernel_regularizer=tf.contrib.layers
-                             .l2_regularizer(hyperparams['l2_scale']),
+                             .l2_regularizer(hyperparams['l2_CNN']),
                              )
 
         pool_layer = partial(tf.layers.max_pooling2d, padding='same')
@@ -89,7 +89,7 @@ class Model:
         dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
                               .variance_scaling_initializer(seed=hyperparams['seed']),
                               kernel_regularizer=tf.contrib.layers
-                              .l2_regularizer(hyperparams['l2_scale']))
+                              .l2_regularizer(hyperparams['l2_translator']))
 
         with tf.variable_scope("trans"):
             self.layer_convert = dense_layer(translator_input, hyperparams['n_phys_inputs'],
@@ -112,7 +112,7 @@ class Model:
         dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
                               .variance_scaling_initializer(seed=hyperparams['seed']),
                               kernel_regularizer=tf.contrib.layers
-                              .l2_regularizer(hyperparams['l2_scale']))
+                              .l2_regularizer(hyperparams['l2_discrepancy']))
 
         # Start with simple dense NN for now. Should probs put batch norm in here someplace.
         with tf.variable_scope("discrepancy"):
@@ -129,14 +129,19 @@ class Model:
     # discrepancy
     def build_loss(self, hyperparams, original, theory, discrepancy):
         with tf.variable_scope("loss"):
+            loss_normalization = (hyperparams['loss_rebuilt'] * hyperparams['loss_theory'] *
+                                  hyperparams['loss_discrepancy'])
+
             self.model_output = theory + discrepancy
             # Penalize errors in the rebuilt trace.
-            self.loss_rebuilt = tf.nn.l2_loss(original - self.model_output,
-                                              name="loss_rebuilt")
+            self.loss_rebuilt = (tf.nn.l2_loss(original - self.model_output, name="loss_rebuilt") *
+                                 hyperparams['loss_rebuilt'] / loss_normalization)
             # Penalize errors between the theory and original trace.
-            self.loss_theory = tf.nn.l2_loss(original - theory, name="loss_theory")
+            self.loss_theory = (tf.nn.l2_loss(original - theory, name="loss_theory") *
+                                hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
-            self.loss_discrepancy = tf.nn.l2_loss(discrepancy, name="loss_discrepancy")
+            self.loss_discrepancy = (tf.nn.l2_loss(discrepancy, name="loss_discrepancy") *
+                                     hyperparams['loss_discrepancy'] / loss_normalization)
 
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_rebuilt + self.loss_theory +
@@ -157,26 +162,43 @@ class Model:
         restorer.restore(sess, model_path)
         print("Model {} has been loaded.".format(model_path))
 
-    def plot_comparison(self, sess, data_input, hyperparams, save_path, epoch):
+    def plot_comparison(self, sess, phys_model, data_input, hyperparams, save_path, epoch):
         # print("Plotting comparison")
 
         # Shape of nn_output is [?, ?]
-        model_output = sess.run(self.model_output, feed_dict={self.training: False,
-                                                              self.data_input: data_input})
+        (model_output, theory_output,
+         phys_numbers) = sess.run([self.model_output, self.processed_theory,
+                                   phys_model.phys_input],
+                                  feed_dict={self.training: False,
+                                             self.data_input: data_input})
         # Last two "examples" are mean and ptp. Take last half of sweep for just the current.
-        data_input = np.squeeze(data_input[:-2, hyperparams['n_inputs']:])
+        data_mean = data_input[-2, hyperparams['n_inputs']:]
+        data_ptp = data_input[-1, hyperparams['n_inputs']:]
+        data_input = data_input[:-2, hyperparams['n_inputs']:] * data_ptp + data_mean
+
+        model_output = model_output * data_ptp + data_mean
 
         # generated_trace = output_test
         fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
         fig.suptitle('Comparison of ')
         np.random.seed(hyperparams['seed'])
-        randidx = np.random.randint(hyperparams['batch_size'], size=(3, 4))
+        randidx = np.random.randint(model_output.shape[0], size=(3, 4))
 
         for x, y in np.ndindex((3, 4)):
-            axes[x, y].plot(data_input[randidx[x, y]], label="Analytic")
-            axes[x, y].plot(model_output[randidx[x, y]], label="Surrogate")
+            axes[x, y].plot(data_input[randidx[x, y]], label="Data")
+            axes[x, y].plot(theory_output[randidx[x, y]], label="Theory")
+            axes[x, y].plot(model_output[randidx[x, y]], label="Rebuilt")
             axes[x, y].set_title("Index {}".format(randidx[x, y]))
         axes[0, 0].legend()
+
+        for x, y in np.ndindex((3, 4)):
+            axes[x, y].text(0.05, 0.7,
+                            "ne = {:3.1e} / cm$^3$ \nVp = {:.1f} V \nTe = {:.1f} eV".
+                            format(phys_numbers[randidx[x, y], 0] / 1e6,
+                                   phys_numbers[randidx[x, y], 1],
+                                   phys_numbers[randidx[x, y], 2]),
+                            transform=axes[x, y].transAxes)
+
         fig.savefig(save_path + 'surrogate-compare-epoch-{}'.format(epoch))
 
     def __init__(self):
