@@ -28,7 +28,7 @@ class Model:
         # Training boolean placeholder is necessary for batch normalization.
         self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
         dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
-                              .variance_scaling_initializer(seed=hyperparams['seed']),
+                              .xavier_initializer(seed=hyperparams['seed']),
                               kernel_regularizer=tf.contrib.layers
                               .l2_regularizer(hyperparams['l2_scale']))
         batch_norm = partial(tf.layers.batch_normalization, training=self.training,
@@ -74,25 +74,38 @@ class Model:
 
         with tf.name_scope("nn"):
             self.nn_layer1 = dense_layer(X, size_l1, name="nn_layer1")
-            self.nn_activ1 = tf.nn.elu(batch_norm(self.nn_layer1), name="nn_activ1")
+            self.nn_activ1 = tf.nn.tanh(self.nn_layer1, name="nn_activ1")
 
             self.nn_layer2 = dense_layer(self.nn_activ1, size_l2, name="nn_layer2")
-            self.nn_activ2 = tf.nn.elu(batch_norm(self.nn_layer2, name="nn_activ2"))
+            self.nn_activ2 = tf.nn.tanh(self.nn_layer2, name="nn_activ2")
 
             self.nn_layer3 = dense_layer(self.nn_activ2, size_l2, name="nn_layer3")
-            self.nn_activ3 = tf.nn.elu(batch_norm(self.nn_layer3, name="nn_activ3"))
+            self.nn_activ3 = tf.nn.tanh(self.nn_layer3, name="nn_activ3")
 
             self.nn_layer4 = dense_layer(self.nn_activ3, size_l2, name="nn_layer4")
-            self.nn_activ4 = tf.nn.elu(batch_norm(self.nn_layer4, name="nn_activ4"))
+            self.nn_activ4 = tf.nn.tanh(self.nn_layer4, name="nn_activ4")
 
-            self.nn_layer_out = dense_layer(self.nn_activ4, n_output, name="nn_layer_out")
-            self.nn_activ_out = tf.identity(batch_norm(self.nn_layer_out), name="nn_activ_out")
+            self.nn_layer5 = dense_layer(self.nn_activ4, size_l2, name="nn_layer5")
+            self.nn_activ5 = tf.nn.tanh(self.nn_layer5, name="nn_activ5")
+
+            self.nn_layer6 = dense_layer(self.nn_activ5, size_l2, name="nn_layer6")
+            self.nn_activ6 = tf.nn.tanh(self.nn_layer6, name="nn_activ6")
+
+            self.nn_layer7 = dense_layer(self.nn_activ6, size_l2, name="nn_layer7")
+            self.nn_activ7 = tf.nn.tanh(self.nn_layer7, name="nn_activ7")
+
+            self.nn_layer8 = dense_layer(self.nn_activ7, size_l2, name="nn_layer8")
+            self.nn_activ8 = tf.nn.tanh(self.nn_layer8, name="nn_activ8")
+
+            self.nn_layer_out = dense_layer(self.nn_activ8, n_output, name="nn_layer_out")
+            self.nn_activ_out = tf.identity(self.nn_layer_out, name="nn_activ_out")
 
             # The output of the network should be a complete sweep (which is of length n_inputs)
-            self.output = tf.reshape(self.nn_activ_out, [-1, n_inputs], name="output")
+            self.output = tf.reshape(self.nn_activ_out, [-1, n_inputs],
+                                     name="output") / self.y_scalefactor
 
         with tf.variable_scope("loss"):
-            self.loss_base = tf.nn.l2_loss(self.nn_activ_out * self.y_scalefactor - y,
+            self.loss_base = tf.nn.l2_loss(self.nn_activ_out - y,
                                            name="loss_base") / hyperparams['batch_size']
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_base] + self.loss_reg, name="loss_total")

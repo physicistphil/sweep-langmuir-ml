@@ -156,23 +156,23 @@ def train(hyperparams):
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 256,  # Number of points to define the voltage sweep.
                    'n_phys_inputs': 3,  # n_e, V_p and T_e (for now).
-                   'size_l1': 50,
-                   'size_l2': 50,
+                   'size_l1': 40,
+                   'size_l2': 40,
                    # 'size_lh': 20,
                    'n_output': 256,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-12,
+                   'learning_rate': 1e-6,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'l2_scale': 0.00,
-                   'batch_size': 4096,  # Actual batch size is n_inputs * batch_size (see build_NN)
+                   'batch_size': 1024,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
-                   'num_batches': 16,  # Number of batches trained in each epoch.
+                   'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info
-                   'steps': 1000,
-                   'seed': 16042,
+                   'steps': 10000,
+                   'seed': 2048042,
                    'restore': True,
-                   'restore_model': "model-20200127221951-final"
+                   'restore_model': "model-20200204182017-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams)
