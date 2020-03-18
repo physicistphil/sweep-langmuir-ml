@@ -20,6 +20,7 @@ import plot_utils
 # From the directory
 import build_full
 import build_analytic  # for the analytical model
+import build_surrogate  # for the surrogate model
 
 # weights and biases -- ML experiment tracker
 import wandb
@@ -71,14 +72,29 @@ def train(hyperparams):
     model.build_CNN(hyperparams, model.data_X)
     # Build the network that translates from the CNN output to the Langmuir sweep model
     model.build_linear_translator(hyperparams, model.CNN_output)
+
     # Build the analytical Langmuir sweep model.
-    analytic_model = build_analytic.Model()
-    analytic_model.build_analytical_model(hyperparams, model.layer_convert_activation,
-                                          model.data_X[:, 0:hyperparams['n_inputs']] *
-                                          model.data_ptp[0:hyperparams['n_inputs']] +
-                                          model.data_mean[0:hyperparams['n_inputs']])
+    # analytic_model = build_analytic.Model()
+    # analytic_model.build_analytical_model(hyperparams, model.layer_convert_activation,
+    #                                       model.data_X[:, 0:hyperparams['n_inputs']] *
+    #                                       model.data_ptp[0:hyperparams['n_inputs']] +
+    #                                       model.data_mean[0:hyperparams['n_inputs']])
+    # Build the surrogate model
+    surrogate_hyperparams = hyperparams
+    surrogate_hyperparams['size_l1'] = surrogate_hyperparams['size_l2'] = 40
+    surrogate_hyperparams['l2_scale'] = 0.0
+    surrogate_model = build_surrogate.Model()
+    surrogate_X = tf.concat([model.layer_convert_activation,
+                             model.data_X[:, 0:hyperparams['n_inputs']] *
+                             model.data_ptp[0:hyperparams['n_inputs']] +
+                             model.data_mean[0:hyperparams['n_inputs']]], 1)
+    surrogate_path = "./saved_models/" + hyperparams['surrogate_model'] + ".ckpt"
+    with tf.variable_scope('surrogate'):
+        surrogate_model.build_dense_NN(surrogate_hyperparams, surrogate_X, 0.0)
+
     # Process the curve coming out of the sweep model.
-    model.build_theory_processor(hyperparams, analytic_model.phys_output, stop_gradient=False)
+    # model.build_theory_processor(hyperparams, analytic_model.phys_output, stop_gradient=False)
+    model.build_theory_processor(hyperparams, surrogate_model.output, stop_gradient=False)
     # The discrepancy model tries to fit the difference between the original and analytic curves.
     model.build_discrepancy_model(hyperparams, model.data_X[:, 0:hyperparams['n_inputs']],
                                   (model.data_X[:, hyperparams['n_inputs']:] -
@@ -102,11 +118,25 @@ def train(hyperparams):
     config.gpu_options.allow_growth = True
 
     with tf.compat.v1.Session(config=config) as sess:
-
         # ---------------------- Initialize everything ---------------------- #
+        # Initialize variables
         init.run()
         # Initialize the data iterator.
         sess.run(model.data_iter.initializer, feed_dict={model.data_input: data_input})
+
+        # Restore surrogate model parameters
+        # Load variable values for the surrogate model and strip first 10 chars ('surrogate/')
+        surr_varlist = {var.op.name[10:]: var
+                        for var in tf.get_collection(tf.GraphKeys.VARIABLES, scope="surrogate/")}
+        # Hacky way to get rid of the variables created by the optimizer / training portion of
+        #   the build_dense_NN routine for teh surrogate model. This means we get rid of everything
+        #   that starts with the prefix of "trainer/".
+        surr_keylist = [_ for _ in surr_varlist.keys()]
+        for _ in surr_keylist:
+            if _[0:8] == 'trainer/':
+                del surr_varlist[_]
+        surr_saver = tf.train.Saver(var_list=surr_varlist)
+        surr_saver.restore(sess, surrogate_path)
 
         if hyperparams['restore']:
             model.load_model(sess, "./saved_models/" + hyperparams['restore_model'] + ".ckpt")
@@ -146,8 +176,7 @@ def train(hyperparams):
                 print("[" + " " * 5 + "Saving...." + " " * 5 + "]", end="\r")
 
                 wandb.log({'loss_train': loss_train}, step=epoch)
-                model.plot_comparison(sess, analytic_model, data_input,
-                                      hyperparams, fig_path, epoch)
+                model.plot_comparison(sess, data_input, hyperparams, fig_path, epoch)
                 if best_loss < best_loss:
                     best_loss = best_loss
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
@@ -163,7 +192,7 @@ def train(hyperparams):
 
         # ---------------------- Log results, make figures ---------------------- #
         wandb.log({'loss_train': loss_train}, step=epoch)
-        model.plot_comparison(sess, analytic_model, data_input, hyperparams, fig_path, epoch)
+        model.plot_comparison(sess, data_input, hyperparams, fig_path, epoch)
         saver.save(sess, "./saved_models/model-{}-final.ckpt".format(now))
 
         # Log tensorflow checkpoints (takes up a lot of space).
@@ -187,14 +216,14 @@ if __name__ == '__main__':
                    'size_diff': 20,
                    'n_output': 256,
                    # Loss scaling weights (please normalize)
-                   'loss_rebuilt': 0.5,  # Controls the influence of the error of the rebuilt curve
-                   'loss_theory': 0.5,  # Controls how tightly the theory must fit the original
+                   'loss_rebuilt': 1.0,  # Controls the influence of the error of the rebuilt curve
+                   'loss_theory': 5.0,  # Controls how tightly the theory must fit the original
                    'loss_discrepancy': 1.0,  # Controls how small the discrepancy must be
                    'l2_CNN': 0.00,
                    'l2_discrepancy': 0.00,
-                   'l2_discrepancy': 0.00,
+                   'l2_translator': 0.00,
                    # Optimization hyperparamters
-                   'learning_rate': 2e-9,
+                   'learning_rate': 1e-11,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'batch_size': 1024,  # Actual batch size is n_inputs * batch_size (see build_NN)
@@ -206,7 +235,8 @@ if __name__ == '__main__':
                    'steps': 3000,
                    'seed': 42,
                    'restore': False,
-                   'restore_model': "model-AAAAA-final"
+                   'restore_model': "model-AAAAA-final",
+                   'surrogate_model': "model-20200221094541-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams)

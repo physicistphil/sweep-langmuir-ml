@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 
 class Model:
     def build_data_pipeline(self, hyperparams):
-        with tf.name_scope("pipeline"):
+        with tf.variable_scope("pipeline"):
             self.data_input = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2])
             # The data has 2 examples at the end that are actually the mean and ptp. We need to
             #   trim them off:
@@ -24,7 +24,7 @@ class Model:
             self.data_X = self.data_iter.get_next()
 
     def build_CNN(self, hyperparams, X):
-        with tf.name_scope("data"):
+        with tf.variable_scope("data"):
             self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
 
             # X needs to be 4d for input into convolution layers
@@ -46,8 +46,7 @@ class Model:
         middle_size = 8
         filters = hyperparams['filters']
 
-        with tf.name_scope("nn"):
-            with tf.variable_scope("base"):
+        with tf.variable_scope("nn"):
                 self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
                                               kernel_size=(2, 5), strides=(1, 1))
                 # Just keep middle row (making the height dimension padding 'valid').
@@ -137,7 +136,10 @@ class Model:
             self.loss_rebuilt = (tf.nn.l2_loss(original - self.model_output, name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'] / loss_normalization)
             # Penalize errors between the theory and original trace.
-            self.loss_theory = (tf.nn.l2_loss(original - theory, name="loss_theory") *
+            # self.loss_theory = (tf.nn.l2_loss(original - theory, name="loss_theory") *
+                                # hyperparams['loss_theory'] / loss_normalization)
+            self.loss_theory = (tf.math.reduce_sum(tf.math.sqrt(tf.math.abs(original - theory)),
+                                                   name="loss_theory") *
                                 hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
             self.loss_discrepancy = (tf.nn.l2_loss(discrepancy, name="loss_discrepancy") *
@@ -162,13 +164,13 @@ class Model:
         restorer.restore(sess, model_path)
         print("Model {} has been loaded.".format(model_path))
 
-    def plot_comparison(self, sess, phys_model, data_input, hyperparams, save_path, epoch):
+    def plot_comparison(self, sess, data_input, hyperparams, save_path, epoch):
         # print("Plotting comparison")
 
         # Shape of nn_output is [?, ?]
         (model_output, theory_output,
          phys_numbers) = sess.run([self.model_output, self.processed_theory,
-                                   phys_model.phys_input],
+                                   self.layer_convert_activation],
                                   feed_dict={self.training: False,
                                              self.data_input: data_input})
         # Last two "examples" are mean and ptp. Take last half of sweep for just the current.
