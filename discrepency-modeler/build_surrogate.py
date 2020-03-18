@@ -162,6 +162,7 @@ class Model:
             axes[x, y].set_title("Index {}".format(randidx[x, y]))
         axes[0, 0].legend()
         fig.savefig(save_path + 'surrogate-compare-epoch-{}'.format(epoch))
+        plt.close(fig)
 
         # print("Finished plotting comparison")
 

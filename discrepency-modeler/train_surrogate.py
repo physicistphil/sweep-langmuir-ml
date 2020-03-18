@@ -169,10 +169,10 @@ if __name__ == '__main__':
                    # Data paramters
                    'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info
-                   'steps': 10000,
-                   'seed': 2048042,
+                   'steps': 100000,
+                   'seed': 4096042,
                    'restore': True,
-                   'restore_model': "model-20200204182017-final"
+                   'restore_model': "model-20200221094541-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams)
