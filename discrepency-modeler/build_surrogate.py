@@ -146,9 +146,11 @@ class Model:
 
         # Shape of data_y without squeeze is [1, batch_size, n_inputs]
         # Shape of nn_output is [batch_size, n_inputs]
-        data_y, model_output = sess.run([self.data_y, self.output],
-                                        feed_dict={self.training: False})
+        data_X, data_y, model_output = sess.run([self.data_X, self.data_y, self.output],
+                                                feed_dict={self.training: False})
         data_y = np.squeeze(data_y)
+        data_X = np.squeeze(data_X)
+        phys_numbers = data_X[:, 0:3]
 
         # generated_trace = output_test
         fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
@@ -161,6 +163,15 @@ class Model:
             axes[x, y].plot(model_output[randidx[x, y]], label="Surrogate")
             axes[x, y].set_title("Index {}".format(randidx[x, y]))
         axes[0, 0].legend()
+
+        for x, y in np.ndindex((3, 4)):
+            axes[x, y].text(0.05, 0.7,
+                            "ne = {:3.1e} / cm$^3$ \nVp = {:.1f} V \nTe = {:.1f} eV".
+                            format(phys_numbers[randidx[x, y], 0] / 1e6,
+                                   phys_numbers[randidx[x, y], 1],
+                                   phys_numbers[randidx[x, y], 2] / 1.602e-19),
+                            transform=axes[x, y].transAxes)
+
         fig.savefig(save_path + 'surrogate-compare-epoch-{}'.format(epoch))
         plt.close(fig)
 
