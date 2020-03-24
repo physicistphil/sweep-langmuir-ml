@@ -60,12 +60,20 @@ class Model:
             X = X * self.X_scalefactor
             self.X = X
 
-            # Match dimensions of y with X. Shape will be [batch_size * n_inputs, 1].
-            y = (tf.reshape(y, [-1, 1]))
+            y = tf.squeeze(y)
             # Rescale for easier training.
             self.y_scalefactor = tf.constant([1e2])
             y = y * self.y_scalefactor
+
+            # Calculate y_max so that small and large curves are trained equally.
+            y_max = tf.reduce_max(y, axis=1, keepdims=True)
+            y_max = tf.tile(y_max, [1, n_inputs])  # Shape is back to original.
+
+            # Match dimensions of y with X. Shape will be [batch_size * n_inputs, 1].
+            y = (tf.reshape(y, [-1, 1]))
             self.y = y
+            y_max = tf.reshape(y_max, [-1, 1])
+            self.y_max = y_max
 
         size_l1 = hyperparams['size_l1']
         size_l2 = hyperparams['size_l2']
@@ -105,8 +113,8 @@ class Model:
                                      name="output")
 
         with tf.variable_scope("loss"):
-            self.loss_base = tf.nn.l2_loss(self.nn_activ_out - y,
-                                           name="loss_base") / hyperparams['batch_size']
+            self.loss_base = (tf.nn.l2_loss((self.nn_activ_out - y) / (self.y_max),
+                                            name="loss_base") / hyperparams['batch_size'])
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_base] + self.loss_reg, name="loss_total")
 
