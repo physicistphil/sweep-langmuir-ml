@@ -40,7 +40,7 @@ class Model:
             #   should simplify the model and make it easier to train.
             n_phys_inputs = hyperparams['n_phys_inputs']
             n_inputs = hyperparams['n_inputs']
-            X = tf.squeeze(X)  # Get rid of excess dimensions.
+            X = tf.squeeze(X, name="X")  # Get rid of excess dimensions.
             self.X_phys_repeated = tf.expand_dims(X[:, 0:n_phys_inputs], 1)
             # Size of physical parameters tensor is now [batch_size, 1, n_phys_input].
             # Repeat ne, Vp, Te over axis 1.
@@ -55,12 +55,12 @@ class Model:
             # Our network will now be fed tensors of [batch_size * n_inputs, 4] and will output
             #   and will output tensors of [batch_size * n_inputs, 1].
             X = (tf.reshape(X, [-1, n_phys_inputs + 1]))
-            # Rescale so training is easier.
+            # Rescale so training is easier. [n, Vp, Te, vsweep]
             self.X_scalefactor = tf.constant([1e-17, 1e-1, 1e19, 1e-1])
             X = X * self.X_scalefactor
             self.X = X
 
-            # Match dimensions of y with X. Shape will be [batch_size, n_inputs, 1].
+            # Match dimensions of y with X. Shape will be [batch_size * n_inputs, 1].
             y = (tf.reshape(y, [-1, 1]))
             # Rescale for easier training.
             self.y_scalefactor = tf.constant([1e2])
@@ -101,8 +101,8 @@ class Model:
             self.nn_activ_out = tf.identity(self.nn_layer_out, name="nn_activ_out")
 
             # The output of the network should be a complete sweep (which is of length n_inputs)
-            self.output = tf.reshape(self.nn_activ_out, [-1, n_inputs],
-                                     name="output") / self.y_scalefactor
+            self.output = tf.reshape(self.nn_activ_out / self.y_scalefactor, [-1, n_inputs],
+                                     name="output")
 
         with tf.variable_scope("loss"):
             self.loss_base = tf.nn.l2_loss(self.nn_activ_out - y,
