@@ -45,6 +45,9 @@ def generate_random_traces_from_array(ne_range, Vp_range, Te_range,
     # size: how many traces to generate
     # S = effective area of probe in m^2
 
+    # You need to change the seed after every random nubmer generator call to avoid unintended
+    #   correlations across the various parameters of the sweep model!
+
     n_inputs = hyperparams['n_inputs']
 
     # Physical constants (mks)
@@ -58,12 +61,12 @@ def generate_random_traces_from_array(ne_range, Vp_range, Te_range,
     # Generate voltage sweep flat space parameters randomly within the range given.
     np.random.seed(hyperparams['seed'])
     vsweep_lower = np.random.uniform(vsweep_lower_range[0], vsweep_lower_range[1], size)
-    np.random.seed(hyperparams['seed'] + 1)  # +1 on the seed to avoid duplicate random values
+    np.random.seed(hyperparams['seed'] + 1)
     vsweep_upper = np.random.uniform(vsweep_upper_range[0], vsweep_upper_range[1], size)
-    np.random.seed(hyperparams['seed'])
+    np.random.seed(hyperparams['seed'] + 2)
     vsweep_flat_before = np.random.randint(vsweep_flat_before_range[0],
                                            vsweep_flat_before_range[1], size)
-    np.random.seed(hyperparams['seed'] + 1)  # +1 on the seed to avoid duplicate random values
+    np.random.seed(hyperparams['seed'] + 3)
     vsweep_flat_after = np.random.randint(vsweep_flat_after_range[0],
                                           vsweep_flat_after_range[1], size)
     vsweep = np.ndarray(shape=(size, n_inputs))
@@ -85,13 +88,13 @@ def generate_random_traces_from_array(ne_range, Vp_range, Te_range,
         vsweep[i] = np.concatenate((lower, middle, upper))[randidx:randidx + n_inputs]
 
     # Generate the density, plasma potential, and temperature from the given ranges.
-    np.random.seed(hyperparams['seed'])
+    np.random.seed(hyperparams['seed'] + 4)
     ne = np.repeat(np.exp(np.random.uniform(np.log(ne_range[0]), np.log(ne_range[1]), (size, 1))),
                    n_inputs, axis=1)
-    np.random.seed(hyperparams['seed'])
+    np.random.seed(hyperparams['seed'] + 5)
     Vp = np.repeat(np.random.uniform(Vp_range[0], Vp_range[1], (size, 1)),
                    n_inputs, axis=1)
-    np.random.seed(hyperparams['seed'])
+    np.random.seed(hyperparams['seed'] + 6)
     Te = np.repeat(np.exp(np.random.uniform(np.log(Te_range[0]), np.log(Te_range[1]), (size, 1))),
                    n_inputs, axis=1)
 
