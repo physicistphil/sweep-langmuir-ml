@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 
 class Model:
     def build_data_pipeline(self, hyperparams, generator):
-        with tf.name_scope("pipeline"):
+        with tf.variable_scope("pipeline"):
             input_size = hyperparams['n_phys_inputs'] + hyperparams['n_inputs']
             output_size = hyperparams['n_output']
             self.dataset = tf.data.Dataset.from_generator(lambda: generator(hyperparams, limit=-1),
@@ -34,7 +34,7 @@ class Model:
         batch_norm = partial(tf.layers.batch_normalization, training=self.training,
                              momentum=hyperparams['batch_momentum'])
 
-        with tf.name_scope("data"):
+        with tf.variable_scope("data"):
             # We need to train the surrogate on each indiviudal sweep point instead of the whole
             #   sweep at once -- we want to learn f(voltage), not f(entire voltage sweep). This
             #   should simplify the model and make it easier to train.
@@ -72,7 +72,7 @@ class Model:
         # n_output = hyperparams['n_output']
         n_output = 1
 
-        with tf.name_scope("nn"):
+        with tf.variable_scope("nn"):
             self.nn_layer1 = dense_layer(X, size_l1, name="nn_layer1")
             self.nn_activ1 = tf.nn.tanh(self.nn_layer1, name="nn_activ1")
 
