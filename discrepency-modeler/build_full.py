@@ -15,9 +15,9 @@ class Model:
             self.data_input_sliced = self.data_input[:-2, :]
 
             self.dataset = tf.data.Dataset.from_tensor_slices(self.data_input_sliced)
-            self.dataset = self.dataset.repeat()
             self.dataset = self.dataset.batch(hyperparams['batch_size'])
-            self.dataset = self.dataset.prefetch(4)
+            self.dataset = self.dataset.repeat()
+            self.dataset = self.dataset.prefetch(20)
 
             self.data_iter = self.dataset.make_initializable_iterator()
             # No y because this whole thing is pretty much an AE
@@ -93,18 +93,25 @@ class Model:
         with tf.variable_scope("trans"):
             self.layer_convert = dense_layer(translator_input, hyperparams['n_phys_inputs'],
                                              name="layer_convert")
-            self.layer_convert_activation = tf.nn.elu(self.layer_convert,
-                                                      name="layer_convert_activation")
+            self.layer_convert_activation = tf.identity(self.layer_convert,
+                                                        name="layer_convert_activation")
+            # Multiply by some constants to get physical numbers. The analytical model has these
+            #   built in so that needs to be removed if the analytical model is chosen.
+            self.phys_input = self.layer_convert_activation * tf.constant([1e17, 1e1, 1e-19])
             # This gets passed off to the surrogate model.
 
     def build_variational_translator(self, hyperparams):
         pass
 
     def build_theory_processor(self, hyperparams, theory_output, stop_gradient=True):
+        # Scale the theory output to match that of the input curves.
+        scaled_theory = ((theory_output - self.data_mean[hyperparams['n_inputs']:]) /
+                         self.data_ptp[hyperparams['n_inputs']:])
+
         if stop_gradient:
-            self.processed_theory = tf.stop_gradient(theory_output)
+            self.processed_theory = tf.stop_gradient(scaled_theory)
         else:
-            self.processed_theory = tf.identity(theory_output)
+            self.processed_theory = tf.identity(scaled_theory)
 
     # self.diff = X[:, hyperparams['n_inputs']:] - theory_output
     def build_discrepancy_model(self, hyperparams, vsweep, difference):
@@ -136,27 +143,26 @@ class Model:
             self.loss_rebuilt = (tf.nn.l2_loss(original - self.model_output, name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'] / loss_normalization)
             # Penalize errors between the theory and original trace.
-            # self.loss_theory = (tf.nn.l2_loss(original - theory, name="loss_theory") *
-                                # hyperparams['loss_theory'] / loss_normalization)
-            self.loss_theory = (tf.math.reduce_sum(tf.math.sqrt(tf.math.abs(original - theory)),
-                                                   name="loss_theory") *
+            self.loss_theory = (tf.nn.l2_loss(original - theory, name="loss_theory") *
+            # self.loss_theory = (tf.math.reduce_sum(tf.math.sqrt(tf.math.abs(original - theory)),
+                                                   # name="loss_theory") *
+            # self.loss_theory = (tf.math.reduce_sum(1 - tf.math.exp(-(original - theory) ** 2)) *
                                 hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
             self.loss_discrepancy = (tf.nn.l2_loss(discrepancy, name="loss_discrepancy") *
                                      hyperparams['loss_discrepancy'] / loss_normalization)
 
+            # Divide model loss by batch size to keep loss consistent regardless of input size.
+            self.loss_model = (self.loss_rebuilt + self.loss_theory + self.loss_discrepancy /
+                               tf.cast(tf.shape(self.model_output)[0], tf.float32))
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            self.loss_total = tf.add_n([self.loss_rebuilt + self.loss_theory +
-                                        self.loss_discrepancy] + self.loss_reg,
-                                       name="loss_total")
+            self.loss_total = tf.add_n([self.loss_model] + self.loss_reg, name="loss_total")
 
         with tf.variable_scope("train"):
-            self.vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
             self.opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                             hyperparams['momentum'],
                                                             use_nesterov=True)
-
-            self.grads = self.opt.compute_gradients(self.loss_total)
+            self.grads = self.opt.compute_gradients(self.loss_total, var_list=self.vars)
             self.training_op = self.opt.apply_gradients(self.grads)
 
     def load_model(self, sess, model_path):
@@ -170,7 +176,7 @@ class Model:
         # Shape of nn_output is [?, ?]
         (model_output, theory_output,
          phys_numbers) = sess.run([self.model_output, self.processed_theory,
-                                   self.layer_convert_activation],
+                                   self.phys_input],
                                   feed_dict={self.training: False,
                                              self.data_input: data_input})
         # Last two "examples" are mean and ptp. Take last half of sweep for just the current.
@@ -179,6 +185,7 @@ class Model:
         data_input = data_input[:-2, hyperparams['n_inputs']:] * data_ptp + data_mean
 
         model_output = model_output * data_ptp + data_mean
+        theory_output = theory_output * data_ptp + data_mean
 
         # generated_trace = output_test
         fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
@@ -198,10 +205,11 @@ class Model:
                             "ne = {:3.1e} / cm$^3$ \nVp = {:.1f} V \nTe = {:.1f} eV".
                             format(phys_numbers[randidx[x, y], 0] / 1e6,
                                    phys_numbers[randidx[x, y], 1],
-                                   phys_numbers[randidx[x, y], 2]),
+                                   phys_numbers[randidx[x, y], 2] / 1.602e-19),
                             transform=axes[x, y].transAxes)
 
-        fig.savefig(save_path + 'surrogate-compare-epoch-{}'.format(epoch))
+        fig.savefig(save_path + 'full-compare-epoch-{}'.format(epoch))
+        plt.close(fig)
 
     def __init__(self):
         pass

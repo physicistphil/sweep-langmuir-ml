@@ -73,32 +73,31 @@ def train(hyperparams):
     # Build the network that translates from the CNN output to the Langmuir sweep model
     model.build_linear_translator(hyperparams, model.CNN_output)
 
-    # Build the analytical Langmuir sweep model.
-    # analytic_model = build_analytic.Model()
-    # analytic_model.build_analytical_model(hyperparams, model.layer_convert_activation,
-    #                                       model.data_X[:, 0:hyperparams['n_inputs']] *
-    #                                       model.data_ptp[0:hyperparams['n_inputs']] +
-    #                                       model.data_mean[0:hyperparams['n_inputs']])
-    # Build the surrogate model
-    surrogate_hyperparams = hyperparams
-    surrogate_hyperparams['size_l1'] = surrogate_hyperparams['size_l2'] = 40
-    surrogate_hyperparams['l2_scale'] = 0.0
-    surrogate_model = build_surrogate.Model()
-    surrogate_X = tf.concat([model.layer_convert_activation,
+    # Get the surrogate model and connect it to our current model.
+    surrogate_X = tf.concat([model.phys_input,
                              model.data_X[:, 0:hyperparams['n_inputs']] *
                              model.data_ptp[0:hyperparams['n_inputs']] +
                              model.data_mean[0:hyperparams['n_inputs']]], 1)
     surrogate_path = "./saved_models/" + hyperparams['surrogate_model'] + ".ckpt"
-    with tf.variable_scope('surrogate'):
-        surrogate_model.build_dense_NN(surrogate_hyperparams, surrogate_X, 0.0)
+    surr_import = tf.train.import_meta_graph("./saved_models/" + hyperparams['surrogate_model'] +
+                                             ".ckpt.meta",
+                                             input_map={"data/X": surrogate_X},
+                                             import_scope="surrogate")
+    surr_output = tf.get_default_graph().get_tensor_by_name("surrogate/nn/output:0")
 
     # Process the curve coming out of the sweep model.
-    # model.build_theory_processor(hyperparams, analytic_model.phys_output, stop_gradient=False)
-    model.build_theory_processor(hyperparams, surrogate_model.output, stop_gradient=False)
+    model.build_theory_processor(hyperparams, surr_output, stop_gradient=False)
     # The discrepancy model tries to fit the difference between the original and analytic curves.
     model.build_discrepancy_model(hyperparams, model.data_X[:, 0:hyperparams['n_inputs']],
                                   (model.data_X[:, hyperparams['n_inputs']:] -
                                    model.processed_theory))
+
+    # Remove surrogate model from the list of trainable variables (to pass in to the optimizer)
+    training_vars = tf.trainable_variables()
+    removelist = tf.trainable_variables(scope='surrogate')
+    for var in removelist:
+        training_vars.remove(var)
+    model.vars = training_vars
     # Calculate all the losses (full curve, theory fit, discrepancy size, regularization)
     model.build_loss(hyperparams, model.data_X[:, hyperparams['n_inputs']:],
                      model.processed_theory, model.discrepancy_output)
@@ -108,6 +107,8 @@ def train(hyperparams):
         if grad is not None and var is not None:
             tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
             tf.compat.v1.summary.histogram("variables/" + var.name, var)
+    for var in tf.trainable_variables():
+        tf.compat.v1.summary.histogram("trainables/" + var.name, var)
 
     # Initialize configuration and variables.
     init = tf.compat.v1.global_variables_initializer()
@@ -124,34 +125,32 @@ def train(hyperparams):
         # Initialize the data iterator.
         sess.run(model.data_iter.initializer, feed_dict={model.data_input: data_input})
 
-        # Restore surrogate model parameters
-        # Load variable values for the surrogate model and strip first 10 chars ('surrogate/')
-        surr_varlist = {var.op.name[10:]: var
-                        for var in tf.get_collection(tf.GraphKeys.VARIABLES, scope="surrogate/")}
-        # Hacky way to get rid of the variables created by the optimizer / training portion of
-        #   the build_dense_NN routine for teh surrogate model. This means we get rid of everything
-        #   that starts with the prefix of "trainer/".
-        surr_keylist = [_ for _ in surr_varlist.keys()]
-        for _ in surr_keylist:
-            if _[0:8] == 'trainer/':
-                del surr_varlist[_]
-        surr_saver = tf.train.Saver(var_list=surr_varlist)
-        surr_saver.restore(sess, surrogate_path)
+        model.plot_comparison(sess, data_input, hyperparams, fig_path, "_0")
 
+        # Make sure to restore full model before the surrogate so that the variables for the
+        #   surrogate model are restored correctly. This order also allows different surrogate
+        #   models to be used
         if hyperparams['restore']:
             model.load_model(sess, "./saved_models/" + hyperparams['restore_model'] + ".ckpt")
 
-        summaries_op = tf.compat.v1.summary.merge_all()
+        # Restore surrogate model parameters
+        surr_import.restore(sess, surrogate_path)
+
+        # Use regex to remove the surrogate model ops from the summary results so that
+        #   the data pipeline ops of the surrogate model are not ran.
+        summaries_op = tf.compat.v1.summary.merge_all(scope="^((?!surrogate).)*$")
         summary_writer = tf.compat.v1.summary.FileWriter("summaries/sum-" + now, graph=sess.graph)
         best_loss = np.finfo(np.float32).max
 
         # ---------------------- Begin training ---------------------- #
         num_batches = int(np.ceil(data_input.shape[0] / hyperparams['batch_size']))
         for epoch in range(hyperparams['steps']):
+            temp_loss_train = 0
             for i in range(num_batches):
                 _, _, loss_train = sess.run([model.training_op, extra_update_ops, model.loss_total],
                                             feed_dict={model.training: True,
                                                        model.data_input: data_input})
+                temp_loss_train += loss_train / num_batches
 
                 if i == 0 and epoch % 10 == 0:
                     try:
@@ -161,17 +160,19 @@ def train(hyperparams):
                     except tf.errors.InvalidArgumentError:
                         print("NaN in summary histogram; no summary generated.")
 
+            loss_train = temp_loss_train
+
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
                   "]", end="\t")
-            print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}")
+            print(("Epoch {:5}\tT: {} \tTraining loss: {:.3e}")
                   .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train), end="")
             print("\r", end="")
 
             # At multiples of 10, we take a break and save our model.
             if epoch % 10 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
-                print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}")
+                print(("Epoch {:5}\tT: {} \tTraining loss: {:.3e}")
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train))
                 print("[" + " " * 5 + "Saving...." + " " * 5 + "]", end="\r")
 
@@ -187,7 +188,7 @@ def train(hyperparams):
                 saver.save(sess, "./saved_models/model-{}-epoch-{}.ckpt".format(now, epoch))
 
         print("[" + "=" * 20 + "]", end="\t")
-        print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}")
+        print(("Epoch {:5}\tT: {} \tTraining loss: {:.3e}")
               .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train))
 
         # ---------------------- Log results, make figures ---------------------- #
@@ -216,27 +217,27 @@ if __name__ == '__main__':
                    'size_diff': 20,
                    'n_output': 256,
                    # Loss scaling weights (please normalize)
-                   'loss_rebuilt': 1.0,  # Controls the influence of the error of the rebuilt curve
+                   'loss_rebuilt': 3.0,  # Controls the influence of the error of the rebuilt curve
                    'loss_theory': 5.0,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 1.0,  # Controls how small the discrepancy must be
+                   'loss_discrepancy': 0.2,  # Controls how small the discrepancy must be
                    'l2_CNN': 0.00,
-                   'l2_discrepancy': 0.00,
+                   'l2_discrepancy': 0.1,
                    'l2_translator': 0.00,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-11,
+                   'learning_rate': 1e-6,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
-                   'batch_size': 1024,  # Actual batch size is n_inputs * batch_size (see build_NN)
+                   'batch_size': 1024,
                    # Data paramters
                    # 'num_batches': 16,  # Number of batches trained in each epoch.
                    'frac_train': 0.6,
                    'frac_test': 0.2,
                    # Training info
-                   'steps': 3000,
+                   'steps': 1000,
                    'seed': 42,
-                   'restore': False,
-                   'restore_model': "model-AAAAA-final",
-                   'surrogate_model': "model-20200221094541-final"
+                   'restore': True,
+                   'restore_model': "model-20200324225450-final",
+                   'surrogate_model': "model-20200324192353-final"
                    }
-    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
+    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
     train(hyperparams)
