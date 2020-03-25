@@ -113,8 +113,8 @@ class Model:
                                      name="output")
 
         with tf.variable_scope("loss"):
-            self.loss_base = (tf.nn.l2_loss((self.nn_activ_out - y) / (self.y_max),
-                                            name="loss_base") / hyperparams['batch_size'])
+            self.loss_base = (tf.reduce_sum((self.nn_activ_out - y) ** 2 / (self.y_max)) /
+                              hyperparams['batch_size'])
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_base] + self.loss_reg, name="loss_total")
 

@@ -26,8 +26,8 @@ import wandb
 
 # Note: the generator will not be serialized with the graph when saved (see TF docs).
 def trace_generator(hyperparams, limit=-1):
-    ne_range = np.array([1e16, 1e18])
-    Vp_range = np.array([0, 20])
+    ne_range = np.array([1e16, 5e18])
+    Vp_range = np.array([-20, 30])
     e = 1.602e-19  # Elementary charge
     Te_range = np.array([0.5, 10]) * e
     vsweep_lower_range = np.array([-50, -20])
@@ -161,7 +161,7 @@ if __name__ == '__main__':
                    # 'size_lh': 20,
                    'n_output': 256,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-6,
+                   'learning_rate': 5e-6,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'l2_scale': 0.00,
@@ -169,10 +169,10 @@ if __name__ == '__main__':
                    # Data paramters
                    'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info
-                   'steps': 1000,
+                   'steps': 20000,
                    'seed': 0,
                    'restore': False,
-                   'restore_model': "model-no_restore-final"
+                   'restore_model': "model-20200324192353-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams)
