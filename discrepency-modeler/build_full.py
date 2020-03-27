@@ -5,30 +5,39 @@ from matplotlib import pyplot as plt
 
 
 class Model:
-    def build_data_pipeline(self, hyperparams):
+    def build_data_pipeline(self, hyperparams, data_mean, data_ptp):
         with tf.variable_scope("pipeline"):
-            self.data_input = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2])
-            # The data has 2 examples at the end that are actually the mean and ptp. We need to
-            #   trim them off:
-            self.data_mean = self.data_input[-2, :]
-            self.data_ptp = self.data_input[-1, :]
-            self.data_input_sliced = self.data_input[:-2, :]
+            self.data_train = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2])
+            self.data_test = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2])
 
-            self.dataset = tf.data.Dataset.from_tensor_slices(self.data_input_sliced)
-            self.dataset = self.dataset.batch(hyperparams['batch_size'])
-            self.dataset = self.dataset.repeat()
-            self.dataset = self.dataset.prefetch(20)
+            # Keep mean and ptp in the graph so they can be accessed outside of the model.
+            self.data_mean = tf.constant(data_mean, dtype=np.float32, name="data_mean")
+            self.data_ptp = tf.constant(data_ptp, dtype=np.float32, name="data_ptp")
+            # self.dataset = tf.data.Dataset.from_tensor_slices(self.data_input_sliced)
 
-            self.data_iter = self.dataset.make_initializable_iterator()
+            self.dataset_train = tf.data.Dataset.from_tensor_slices(self.data_train)
+            self.dataset_train = self.dataset_train.batch(hyperparams['batch_size'])
+            self.dataset_train = self.dataset_train.repeat()
+            self.dataset_train = self.dataset_train.prefetch(20)
+            self.data_train_iter = self.dataset_train.make_initializable_iterator()
+
+            self.dataset_test = tf.data.Dataset.from_tensor_slices(self.data_test)
+            self.dataset_test = self.dataset_test.batch(hyperparams['batch_size'])
+            self.dataset_test = self.dataset_test.repeat()
+            self.dataset_test = self.dataset_test.prefetch(20)
+            self.data_test_iter = self.dataset_test.make_initializable_iterator()
+
             # No y because this whole thing is pretty much an AE
-            self.data_X = self.data_iter.get_next()
+            self.data_X_train = self.data_train_iter.get_next()
+            self.data_X_test = self.data_test_iter.get_next()
 
-    def build_CNN(self, hyperparams, X):
+    def build_CNN(self, hyperparams, X_train, X_test):
         with tf.variable_scope("data"):
             self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
+            self.X = tf.cond(self.training, true_fn=lambda: X_train, false_fn=lambda: X_test)
 
             # X needs to be 4d for input into convolution layers
-            self.X_reshaped = tf.reshape(X, [-1, 2, hyperparams['n_inputs'], 1])
+            self.X_reshaped = tf.reshape(self.X, [-1, 2, hyperparams['n_inputs'], 1])
 
         conv_layer = partial(tf.layers.conv2d,
                              padding='same', activation=None,
@@ -113,7 +122,6 @@ class Model:
         else:
             self.processed_theory = tf.identity(scaled_theory)
 
-    # self.diff = X[:, hyperparams['n_inputs']:] - theory_output
     def build_discrepancy_model(self, hyperparams, vsweep, difference):
         dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
                               .variance_scaling_initializer(seed=hyperparams['seed']),
@@ -132,10 +140,21 @@ class Model:
             self.discrepancy_output = tf.identity(self.diff_layer1_activation,
                                                   name="discrepancy_output")
 
-    # discrepancy
+            # Include just a simple line in the discrepancy model that it can add at no
+            #   regularization cost. It's constrained to be positive (starts at 0, positive slope)
+            # ones = tf.constant(1.0, shape=[hyperparams['n_inputs']])
+            # # Starting x-coordinate half way through the sweep.
+            # self.line_start = tf.Variable(initial_value=0.5)
+            # # Ending x-coordinate at the very end.
+            # self.line_end = tf.Variable(initial_value=1.0)
+            # # Start with a slope of 0.01.
+            # self.line_slope = tf.Variable(initial_value=0.01)
+
+            # self.diff_line = line_slope *
+
     def build_loss(self, hyperparams, original, theory, discrepancy):
         with tf.variable_scope("loss"):
-            loss_normalization = (hyperparams['loss_rebuilt'] * hyperparams['loss_theory'] *
+            loss_normalization = (hyperparams['loss_rebuilt'] + hyperparams['loss_theory'] +
                                   hyperparams['loss_discrepancy'])
 
             self.model_output = theory + discrepancy
@@ -143,13 +162,11 @@ class Model:
             self.loss_rebuilt = (tf.nn.l2_loss(original - self.model_output, name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'] / loss_normalization)
             # Penalize errors between the theory and original trace.
-            self.loss_theory = (tf.nn.l2_loss(original - theory, name="loss_theory") *
-            # self.loss_theory = (tf.math.reduce_sum(tf.math.sqrt(tf.math.abs(original - theory)),
-                                                   # name="loss_theory") *
-            # self.loss_theory = (tf.math.reduce_sum(1 - tf.math.exp(-(original - theory) ** 2)) *
+            self.loss_theory = (tf.reduce_sum(tf.math.abs(original - theory), name="loss_theory") *
                                 hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
-            self.loss_discrepancy = (tf.nn.l2_loss(discrepancy, name="loss_discrepancy") *
+            self.loss_discrepancy = (tf.reduce_sum(tf.math.abs(discrepancy),
+                                                   name="loss_discrepancy") *
                                      hyperparams['loss_discrepancy'] / loss_normalization)
 
             # Divide model loss by batch size to keep loss consistent regardless of input size.
@@ -162,6 +179,7 @@ class Model:
             self.opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                             hyperparams['momentum'],
                                                             use_nesterov=True)
+            # self.opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(self.opt)
             self.grads = self.opt.compute_gradients(self.loss_total, var_list=self.vars)
             self.training_op = self.opt.apply_gradients(self.grads)
 
@@ -171,23 +189,18 @@ class Model:
         print("Model {} has been loaded.".format(model_path))
 
     def plot_comparison(self, sess, data_input, hyperparams, save_path, epoch):
-        # print("Plotting comparison")
-
-        # Shape of nn_output is [?, ?]
         (model_output, theory_output,
          phys_numbers) = sess.run([self.model_output, self.processed_theory,
                                    self.phys_input],
-                                  feed_dict={self.training: False,
-                                             self.data_input: data_input})
-        # Last two "examples" are mean and ptp. Take last half of sweep for just the current.
-        data_mean = data_input[-2, hyperparams['n_inputs']:]
-        data_ptp = data_input[-1, hyperparams['n_inputs']:]
-        data_input = data_input[:-2, hyperparams['n_inputs']:] * data_ptp + data_mean
+                                  feed_dict={self.training: False})
+
+        data_mean = self.data_mean[hyperparams['n_inputs']:].eval()
+        data_ptp = self.data_ptp[hyperparams['n_inputs']:].eval()
+        data_input = data_input[:, hyperparams['n_inputs']:] * data_ptp + data_mean
 
         model_output = model_output * data_ptp + data_mean
         theory_output = theory_output * data_ptp + data_mean
 
-        # generated_trace = output_test
         fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
         fig.suptitle('Comparison of ')
         np.random.seed(hyperparams['seed'])
@@ -195,8 +208,8 @@ class Model:
 
         for x, y in np.ndindex((3, 4)):
             axes[x, y].plot(data_input[randidx[x, y]], label="Data")
-            axes[x, y].plot(theory_output[randidx[x, y]], label="Theory")
-            axes[x, y].plot(model_output[randidx[x, y]], label="Rebuilt")
+            axes[x, y].plot(theory_output[randidx[x, y]], label="Theory", alpha=0.8)
+            axes[x, y].plot(model_output[randidx[x, y]], label="Rebuilt", alpha=0.4)
             axes[x, y].set_title("Index {}".format(randidx[x, y]))
         axes[0, 0].legend()
 

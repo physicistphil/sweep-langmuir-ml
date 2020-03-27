@@ -3,7 +3,6 @@
 import tensorflow as tf
 import numpy as np
 from datetime import datetime
-import matplotlib.pyplot as plt
 
 # Modify log levels to keep console clean.
 import os
@@ -15,12 +14,10 @@ import sys
 sys.path.append('../utilities')
 import preprocess
 import generate
-import plot_utils
 
 # From the directory
 import build_full
 import build_analytic  # for the analytical model
-import build_surrogate  # for the surrogate model
 
 # weights and biases -- ML experiment tracker
 import wandb
@@ -60,22 +57,23 @@ def train(hyperparams):
     # Gather all the data. Stack the mean and ptp as if they're examples, but trim them off when
     #   we actually build the model.
     data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
-    data_input = np.vstack([data_train, data_mean, data_ptp])
-    print(data_input.shape)
+    num_batches = int(np.ceil(data_train.shape[0] / hyperparams['batch_size']))
+    num_test_batches = int(np.ceil(data_test.shape[0] / hyperparams['batch_size']))
     # Maybe delete after? Oh well.
 
     # Build the model to train.
     model = build_full.Model()
     # Build the data pipeline
-    model.build_data_pipeline(hyperparams)
+    model.build_data_pipeline(hyperparams, data_mean, data_ptp)
+
     # Build the component that compresses the sweep into some latent space
-    model.build_CNN(hyperparams, model.data_X)
+    model.build_CNN(hyperparams, model.data_X_train, model.data_X_test)
     # Build the network that translates from the CNN output to the Langmuir sweep model
     model.build_linear_translator(hyperparams, model.CNN_output)
 
     # Get the surrogate model and connect it to our current model.
     surrogate_X = tf.concat([model.phys_input,
-                             model.data_X[:, 0:hyperparams['n_inputs']] *
+                             model.X[:, 0:hyperparams['n_inputs']] *
                              model.data_ptp[0:hyperparams['n_inputs']] +
                              model.data_mean[0:hyperparams['n_inputs']]], 1)
     surrogate_path = "./saved_models/" + hyperparams['surrogate_model'] + ".ckpt"
@@ -88,8 +86,8 @@ def train(hyperparams):
     # Process the curve coming out of the sweep model.
     model.build_theory_processor(hyperparams, surr_output, stop_gradient=False)
     # The discrepancy model tries to fit the difference between the original and analytic curves.
-    model.build_discrepancy_model(hyperparams, model.data_X[:, 0:hyperparams['n_inputs']],
-                                  (model.data_X[:, hyperparams['n_inputs']:] -
+    model.build_discrepancy_model(hyperparams, model.X[:, 0:hyperparams['n_inputs']],
+                                  (model.X[:, hyperparams['n_inputs']:] -
                                    model.processed_theory))
 
     # Remove surrogate model from the list of trainable variables (to pass in to the optimizer)
@@ -99,7 +97,7 @@ def train(hyperparams):
         training_vars.remove(var)
     model.vars = training_vars
     # Calculate all the losses (full curve, theory fit, discrepancy size, regularization)
-    model.build_loss(hyperparams, model.data_X[:, hyperparams['n_inputs']:],
+    model.build_loss(hyperparams, model.X[:, hyperparams['n_inputs']:],
                      model.processed_theory, model.discrepancy_output)
 
     # Log values of gradients and variables for tensorboard.
@@ -122,10 +120,9 @@ def train(hyperparams):
         # ---------------------- Initialize everything ---------------------- #
         # Initialize variables
         init.run()
-        # Initialize the data iterator.
-        sess.run(model.data_iter.initializer, feed_dict={model.data_input: data_input})
-
-        model.plot_comparison(sess, data_input, hyperparams, fig_path, "_0")
+        # Initialize data iterators
+        sess.run(model.data_train_iter.initializer, feed_dict={model.data_train: data_train})
+        sess.run(model.data_test_iter.initializer, feed_dict={model.data_test: data_test})
 
         # Make sure to restore full model before the surrogate so that the variables for the
         #   surrogate model are restored correctly. This order also allows different surrogate
@@ -143,19 +140,19 @@ def train(hyperparams):
         best_loss = np.finfo(np.float32).max
 
         # ---------------------- Begin training ---------------------- #
-        num_batches = int(np.ceil(data_input.shape[0] / hyperparams['batch_size']))
         for epoch in range(hyperparams['steps']):
+            # Initialize the training data iterator.
             temp_loss_train = 0
             for i in range(num_batches):
                 _, _, loss_train = sess.run([model.training_op, extra_update_ops, model.loss_total],
-                                            feed_dict={model.training: True,
-                                                       model.data_input: data_input})
+                                            feed_dict={model.training: True})
+                # Keep track of average loss
                 temp_loss_train += loss_train / num_batches
 
                 if i == 0 and epoch % 10 == 0:
                     try:
                         summary = sess.run(summaries_op, feed_dict={model.training: True,
-                                                                    model.data_input: data_input})
+                                                                    model.data_train: data_train})
                         summary_writer.add_summary(summary, epoch)
                     except tf.errors.InvalidArgumentError:
                         print("NaN in summary histogram; no summary generated.")
@@ -165,35 +162,39 @@ def train(hyperparams):
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
                   "]", end="\t")
-            print(("Epoch {:5}\tT: {} \tTraining loss: {:.3e}")
+            print(("Epoch {:5}\tT: {} \tLoss train: {:.3e}")
                   .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train), end="")
             print("\r", end="")
 
-            # At multiples of 10, we take a break and save our model.
-            if epoch % 10 == 0:
+            # Every 10th epoch (or last epoch), calculate testing loss and maybe save the model.
+            if epoch % 10 == 0 or epoch == hyperparams['steps'] - 1:
+                loss_test = 0
+                for i in range(num_test_batches):
+                    loss_test += (sess.run(model.loss_total, feed_dict={model.training: False}) /
+                                  num_test_batches)
+
                 print("[" + "=" * 20 + "]", end="\t")
-                print(("Epoch {:5}\tT: {} \tTraining loss: {:.3e}")
-                      .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train))
+                print(("Epoch {:5}\tT: {} \tLoss train: {:.3e} \tLoss test: {:.3e}")
+                      .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train, loss_test))
                 print("[" + " " * 5 + "Saving...." + " " * 5 + "]", end="\r")
 
                 wandb.log({'loss_train': loss_train}, step=epoch)
-                model.plot_comparison(sess, data_input, hyperparams, fig_path, epoch)
-                if best_loss < best_loss:
-                    best_loss = best_loss
+                wandb.log({'loss_test': loss_test}, step=epoch)
+                model.plot_comparison(sess, data_test, hyperparams, fig_path, epoch)
+                if loss_test < best_loss:
+                    best_loss = loss_test
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
 
                 print("[" + " " * 20 + "]", end="\r")
 
             if epoch % 100 == 0:
                 saver.save(sess, "./saved_models/model-{}-epoch-{}.ckpt".format(now, epoch))
-
-        print("[" + "=" * 20 + "]", end="\t")
-        print(("Epoch {:5}\tT: {} \tTraining loss: {:.3e}")
-              .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train))
+                wandb.log({"Comparison plot":
+                           wandb.Image(fig_path + 'full-compare-epoch-{}.png'.format(epoch))})
 
         # ---------------------- Log results, make figures ---------------------- #
-        wandb.log({'loss_train': loss_train}, step=epoch)
-        model.plot_comparison(sess, data_input, hyperparams, fig_path, epoch)
+        wandb.log({"Comparison plot":
+                   wandb.Image(fig_path + 'full-compare-epoch-{}.png'.format(epoch))})
         saver.save(sess, "./saved_models/model-{}-final.ckpt".format(now))
 
         # Log tensorflow checkpoints (takes up a lot of space).
@@ -217,11 +218,11 @@ if __name__ == '__main__':
                    'size_diff': 20,
                    'n_output': 256,
                    # Loss scaling weights (please normalize)
-                   'loss_rebuilt': 3.0,  # Controls the influence of the error of the rebuilt curve
-                   'loss_theory': 5.0,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.2,  # Controls how small the discrepancy must be
+                   'loss_rebuilt': 5.0,  # Controls the influence of the rebuilt curve
+                   'loss_theory': 0.5,  # Controls how tightly the theory must fit the original
+                   'loss_discrepancy': 5.0,  # Controls how small the discrepancy must be
                    'l2_CNN': 0.00,
-                   'l2_discrepancy': 0.1,
+                   'l2_discrepancy': 2.0,
                    'l2_translator': 0.00,
                    # Optimization hyperparamters
                    'learning_rate': 1e-6,
@@ -230,14 +231,14 @@ if __name__ == '__main__':
                    'batch_size': 1024,
                    # Data paramters
                    # 'num_batches': 16,  # Number of batches trained in each epoch.
-                   'frac_train': 0.6,
+                   'frac_train': 0.8,
                    'frac_test': 0.2,
                    # Training info
-                   'steps': 1000,
-                   'seed': 42,
-                   'restore': True,
-                   'restore_model': "model-20200324225450-final",
-                   'surrogate_model': "model-20200324192353-final"
+                   'steps': 100,
+                   'seed': 137,
+                   'restore': False,
+                   'restore_model': "model-none-final",
+                   'surrogate_model': "model-20200326172157-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
     train(hyperparams)
