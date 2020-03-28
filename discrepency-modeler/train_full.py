@@ -82,7 +82,10 @@ def train(hyperparams):
                                              input_map={"data/X": surrogate_X},
                                              import_scope="surrogate")
     surr_output = tf.get_default_graph().get_tensor_by_name("surrogate/nn/output:0")
+    scalefactor = tf.get_default_graph().get_tensor_by_name("surrogate/const/scalefactor:0")
 
+    # So we can get the physical plasma parameters out from the model.
+    model.build_plasma_info(scalefactor)
     # Process the curve coming out of the sweep model.
     model.build_theory_processor(hyperparams, surr_output, stop_gradient=False)
     # The discrepancy model tries to fit the difference between the original and analytic curves.

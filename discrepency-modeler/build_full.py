@@ -60,31 +60,31 @@ class Model:
                                               kernel_size=(2, 5), strides=(1, 1))
                 # Just keep middle row (making the height dimension padding 'valid').
                 # We need 1:2 (instead of just 1) to preserve the dimension.
-                self.layer_conv0_activation = tf.nn.elu(batch_norm(self.layer_conv0[:, :, :, :]))
+                self.layer_conv0_activation = tf.nn.elu((self.layer_conv0[:, :, :, :]))
                 self.layer_pool0 = pool_layer(self.layer_conv0_activation, name="layer_pool0",
                                               pool_size=(1, 5), strides=(1, 2))
 
                 self.layer_conv1 = conv_layer(self.layer_pool0, name="layer_conv1", filters=filters,
                                               kernel_size=(2, 5), strides=(1, 1))
-                self.layer_conv1_activation = tf.nn.elu(batch_norm(self.layer_conv1))
+                self.layer_conv1_activation = tf.nn.elu((self.layer_conv1))
                 self.layer_pool1 = pool_layer(self.layer_conv1_activation, name="layer_pool1",
                                               pool_size=(1, 5), strides=(1, 2))
 
                 self.layer_conv2 = conv_layer(self.layer_pool1, name="layer_conv2", filters=filters,
                                               kernel_size=(2, 5), strides=(1, 1))
-                self.layer_conv2_activation = tf.nn.elu(batch_norm(self.layer_conv2))
+                self.layer_conv2_activation = tf.nn.elu((self.layer_conv2))
                 self.layer_pool2 = pool_layer(self.layer_conv2_activation, name="layer_pool2",
                                               pool_size=(1, 5), strides=(1, 2))
 
                 self.layer_conv3 = conv_layer(self.layer_pool2, name="layer_conv3", filters=filters,
                                               kernel_size=(2, 5), strides=(1, 1))
-                self.layer_conv3_activation = tf.nn.elu(batch_norm(self.layer_conv3))
+                self.layer_conv3_activation = tf.nn.elu((self.layer_conv3))
                 self.layer_pool3 = pool_layer(self.layer_conv3_activation, name="layer_pool3",
                                               pool_size=(1, 5), strides=(1, 2))
 
                 self.layer_conv4 = conv_layer(self.layer_pool3, name="layer_conv4", filters=filters,
                                               kernel_size=(2, 5), strides=(1, 1))
-                self.layer_conv4_activation = tf.nn.elu(batch_norm(self.layer_conv4))
+                self.layer_conv4_activation = tf.nn.elu((self.layer_conv4))
                 self.layer_pool4 = pool_layer(self.layer_conv4_activation, name="layer_pool4",
                                               pool_size=(1, 5), strides=(1, 2))
 
@@ -104,15 +104,21 @@ class Model:
                                              name="layer_convert")
             self.layer_convert_activation = tf.identity(self.layer_convert,
                                                         name="layer_convert_activation")
-            # Multiply by some constants to get physical numbers. The analytical model has these
-            #   built in so that needs to be removed if the analytical model is chosen.
-            self.phys_input = self.layer_convert_activation * tf.constant([1e17, 1e1, 1e-19])
-            # This gets passed off to the surrogate model.
+            # This gets passed off to the surrogate model
+            self.phys_input = self.layer_convert_activation
+
+    # Needed to put this in its own function because of needing to import the meta graph after
+    #   building the translator. Keeps things cleaner this way, hopefully.
+    def build_plasma_info(self, scalefactor):
+        # Divide by some constants to get physical numbers. The analytical model has these
+        #   built in so that needs to be removed if the analytical model is chosen. Only take
+        #   the first three components because the last one is for vsweep (and it's just 1.0).
+        self.plasma_info = self.phys_input / scalefactor[0:3]
 
     def build_variational_translator(self, hyperparams):
         pass
 
-    def build_theory_processor(self, hyperparams, theory_output, stop_gradient=True):
+    def build_theory_processor(self, hyperparams, theory_output, stop_gradient):
         # Scale the theory output to match that of the input curves.
         scaled_theory = ((theory_output - self.data_mean[hyperparams['n_inputs']:]) /
                          self.data_ptp[hyperparams['n_inputs']:])
@@ -189,13 +195,12 @@ class Model:
         print("Model {} has been loaded.".format(model_path))
 
     def plot_comparison(self, sess, data_input, hyperparams, save_path, epoch):
-        (model_output, theory_output,
-         phys_numbers) = sess.run([self.model_output, self.processed_theory,
-                                   self.phys_input],
-                                  feed_dict={self.training: False})
+        (model_output, theory_output, phys_numbers, data_mean, data_ptp
+         ) = sess.run([self.model_output, self.processed_theory, self.plasma_info,
+                       self.data_mean[hyperparams['n_inputs']:],
+                       self.data_ptp[hyperparams['n_inputs']:]],
+                      feed_dict={self.training: False})
 
-        data_mean = self.data_mean[hyperparams['n_inputs']:].eval()
-        data_ptp = self.data_ptp[hyperparams['n_inputs']:].eval()
         data_input = data_input[:, hyperparams['n_inputs']:] * data_ptp + data_mean
 
         model_output = model_output * data_ptp + data_mean

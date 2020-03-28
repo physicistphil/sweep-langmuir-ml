@@ -23,6 +23,11 @@ import build_surrogate
 # weights and biases -- ML experiment tracker
 import wandb
 
+# This constant scales the input of the surrogate model (we store it in the graph to use later).
+#   The factor makes training easier (because gradients and values remain sane) and allows us
+#   to use mixed precision without NaNs.
+scalefactor = np.array([1e-17, 1e-1, 1e19, 1e0])
+
 
 # Note: the generator will not be serialized with the graph when saved (see TF docs).
 def trace_generator(hyperparams, limit=-1):
@@ -50,7 +55,10 @@ def trace_generator(hyperparams, limit=-1):
             = generate.generate_random_traces_from_array(ne_range, Vp_range, Te_range,
                                                          vsweep_lower_range, vsweep_upper_range,
                                                          new_hyperparams, size, S=S)
-        yield np.hstack((ne[:, np.newaxis], Vp[:, np.newaxis], Te[:, np.newaxis], vsweep)), current
+        yield np.hstack((ne[:, np.newaxis] * scalefactor[0],
+                         Vp[:, np.newaxis] * scalefactor[1],
+                         Te[:, np.newaxis] * scalefactor[2],
+                         vsweep * scalefactor[3])), current
 
 
 def train(hyperparams):
@@ -61,7 +69,7 @@ def train(hyperparams):
 
     # Build the model to train.
     model = build_surrogate.Model()
-    model.build_data_pipeline(hyperparams, trace_generator)
+    model.build_data_pipeline(hyperparams, trace_generator, scalefactor)
     model.build_dense_NN(hyperparams, model.data_X, model.data_y)
 
     # Log values of gradients and variables for tensorboard.
@@ -116,7 +124,7 @@ def train(hyperparams):
             print("\r", end="")
 
             # At multiples of 10, we take a break and save our model.
-            if epoch % 10 == 0:
+            if epoch % 100 == 0:
                 print("[" + "=" * 20 + "]", end="\t")
                 print(("Epoch {:5}\tT: {} \tp_tr: {:.3e}")
                       .format(epoch, datetime.utcnow().strftime("%H:%M:%S"), loss_train))
@@ -161,7 +169,7 @@ if __name__ == '__main__':
                    # 'size_lh': 20,
                    'n_output': 256,
                    # Optimization hyperparamters
-                   'learning_rate': 5e-6,
+                   'learning_rate': 2e-6,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'l2_scale': 0.00,
@@ -169,10 +177,10 @@ if __name__ == '__main__':
                    # Data paramters
                    'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info
-                   'steps': 20000,
+                   'steps': 100,
                    'seed': 0,
-                   'restore': False,
-                   'restore_model': "model-20200324192353-final"
+                   'restore': True,
+                   'restore_model': "model-20200326172157-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
     train(hyperparams)

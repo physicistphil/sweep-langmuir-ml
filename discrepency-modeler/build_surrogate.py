@@ -5,7 +5,11 @@ from matplotlib import pyplot as plt
 
 
 class Model:
-    def build_data_pipeline(self, hyperparams, generator):
+    def build_data_pipeline(self, hyperparams, generator, scalefactor):
+        # This scalefactor comes from the training exmaple generator. We save it here so we
+        #   can use it to correctly scale the input in models that use this model.
+        with tf.variable_scope("const"):
+            self.scalefactor = tf.constant(scalefactor, dtype=np.float32, name="scalefactor")
         with tf.variable_scope("pipeline"):
             input_size = hyperparams['n_phys_inputs'] + hyperparams['n_inputs']
             output_size = hyperparams['n_output']
@@ -15,7 +19,7 @@ class Model:
             # Batch size is not 'batch_size' because the output from the generator is already
             #   the size of one batch: taking one element from the dataset is actually a batch.
             self.dataset = self.dataset.batch(1)
-            self.dataset = self.dataset.prefetch(12)  # Prefetch 2 batches
+            self.dataset = self.dataset.prefetch(2)  # Prefetch 2 batches
 
             self.data_iter = self.dataset.make_initializable_iterator()
             self.data_X, self.data_y = self.data_iter.get_next()
@@ -24,6 +28,7 @@ class Model:
     #   NN graph construction. Building the main graph separately enables easier loading of
     #   pretrained models.
     # X should have a shape like [batch_size, n_phys_inputs + vsweep]
+    # The X input must be scaled according to the scalefactor.
     def build_dense_NN(self, hyperparams, X, y):
         # Training boolean placeholder is necessary for batch normalization.
         self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
@@ -55,9 +60,10 @@ class Model:
             # Our network will now be fed tensors of [batch_size * n_inputs, 4] and will output
             #   and will output tensors of [batch_size * n_inputs, 1].
             X = (tf.reshape(X, [-1, n_phys_inputs + 1]))
-            # Rescale so training is easier. [n, Vp, Te, vsweep]
-            self.X_scalefactor = tf.constant([1e-17, 1e-1, 1e19, 1e-1])
-            X = X * self.X_scalefactor
+            # Rescale so training is easier. [n, Vp, Te, vsweep].
+            # Manually set the vsweep scalefactor here because otherwise it'd be a pain to
+            #   get it in models that import this one.
+            X = X * tf.constant([1.0, 1.0, 1.0, 1e-1])
             self.X = X
 
             y = tf.squeeze(y)
