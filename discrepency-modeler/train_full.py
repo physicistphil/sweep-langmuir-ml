@@ -6,8 +6,9 @@ from datetime import datetime
 
 # Modify log levels to keep console clean.
 import os
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # os.environ['CUDA_VISIBLE_DEVICES'] = ''
+# os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
 # Custom tools from other directories
 import sys
@@ -68,6 +69,7 @@ def train(hyperparams):
 
     # Build the component that compresses the sweep into some latent space
     model.build_CNN(hyperparams, model.data_X_train, model.data_X_test)
+
     # Build the network that translates from the CNN output to the Langmuir sweep model
     model.build_linear_translator(hyperparams, model.CNN_output)
 
@@ -221,8 +223,8 @@ if __name__ == '__main__':
                    'size_diff': 20,
                    'n_output': 256,
                    # Loss scaling weights (please normalize)
-                   'loss_rebuilt': 5.0,  # Controls the influence of the rebuilt curve
-                   'loss_theory': 0.5,  # Controls how tightly the theory must fit the original
+                   'loss_rebuilt': 1.0,  # Controls the influence of the rebuilt curve
+                   'loss_theory': 0.0,  # Controls how tightly the theory must fit the original
                    'loss_discrepancy': 5.0,  # Controls how small the discrepancy must be
                    'l2_CNN': 0.00,
                    'l2_discrepancy': 2.0,
@@ -237,11 +239,11 @@ if __name__ == '__main__':
                    'frac_train': 0.8,
                    'frac_test': 0.2,
                    # Training info
-                   'steps': 100,
+                   'steps': 1000,
                    'seed': 137,
                    'restore': False,
-                   'restore_model': "model-none-final",
-                   'surrogate_model': "model-20200326172157-final"
+                   'restore_model': "model-20200327223847-final",
+                   'surrogate_model': "model-20200327211709-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
     train(hyperparams)

@@ -139,10 +139,10 @@ class Model:
             self.diff = tf.concat([vsweep, difference], 1)
             self.diff_layer0 = dense_layer(self.diff, hyperparams['size_diff'],
                                            name="diff_layer0")
-            self.diff_layer0_activation = tf.nn.elu(self.diff_layer0)
+            self.diff_layer0_activation = (self.diff_layer0)
             self.diff_layer1 = dense_layer(self.diff_layer0, hyperparams['n_output'],
                                            name="diff_layer1")
-            self.diff_layer1_activation = tf.nn.elu(self.diff_layer1)
+            self.diff_layer1_activation = (self.diff_layer1)
             self.discrepancy_output = tf.identity(self.diff_layer1_activation,
                                                   name="discrepancy_output")
 
@@ -158,6 +158,15 @@ class Model:
 
             # self.diff_line = line_slope *
 
+    # Scale controls how wide the function is. The larger the scale, the larger the x-axis squish.
+    def soft_sqrt(self, tensor, scale=1.0):
+        absolute = scale * tf.math.abs(tensor)
+        # Coefficients in front of the square root are for smoothness of the function.
+        value = tf.where(absolute > 1.0,
+                         x=(2.0 * tf.math.sqrt(absolute) - 1.0),
+                         y=absolute)
+        return value
+
     def build_loss(self, hyperparams, original, theory, discrepancy):
         with tf.variable_scope("loss"):
             loss_normalization = (hyperparams['loss_rebuilt'] + hyperparams['loss_theory'] +
@@ -165,13 +174,15 @@ class Model:
 
             self.model_output = theory + discrepancy
             # Penalize errors in the rebuilt trace.
-            self.loss_rebuilt = (tf.nn.l2_loss(original - self.model_output, name="loss_rebuilt") *
+            self.loss_rebuilt = (tf.reduce_sum(self.soft_sqrt(original - self.model_output),
+                                               name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'] / loss_normalization)
             # Penalize errors between the theory and original trace.
-            self.loss_theory = (tf.reduce_sum(tf.math.abs(original - theory), name="loss_theory") *
+            self.loss_theory = (tf.reduce_sum(self.soft_sqrt(original - theory),
+                                              name="loss_theory") *
                                 hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
-            self.loss_discrepancy = (tf.reduce_sum(tf.math.abs(discrepancy),
+            self.loss_discrepancy = (tf.reduce_sum(self.soft_sqrt(discrepancy, scale=3.0),
                                                    name="loss_discrepancy") *
                                      hyperparams['loss_discrepancy'] / loss_normalization)
 
