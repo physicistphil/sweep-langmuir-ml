@@ -208,13 +208,16 @@ class Model:
         print("Model {} has been loaded.".format(model_path))
 
     def plot_comparison(self, sess, data_input, hyperparams, save_path, epoch):
-        (model_output, theory_output, phys_numbers, data_mean, data_ptp
+        (model_output, theory_output, phys_numbers, data_mean, data_ptp, data_in
          ) = sess.run([self.model_output, self.processed_theory, self.plasma_info,
                        self.data_mean[hyperparams['n_inputs']:],
-                       self.data_ptp[hyperparams['n_inputs']:]],
+                       self.data_ptp[hyperparams['n_inputs']:],
+                       self.X],
                       feed_dict={self.training: False})
 
-        data_input = data_input[:, hyperparams['n_inputs']:] * data_ptp + data_mean
+        batch_size = model_output.shape[0]
+
+        data_input = data_in[:, hyperparams['n_inputs']:] * data_ptp + data_mean
 
         model_output = model_output * data_ptp + data_mean
         theory_output = theory_output * data_ptp + data_mean
@@ -222,7 +225,9 @@ class Model:
         fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(12, 8), sharex=True)
         fig.suptitle('Comparison of ')
         np.random.seed(hyperparams['seed'])
-        randidx = np.random.randint(model_output.shape[0], size=(3, 4))
+        randidx = np.random.randint(batch_size, size=(3, 4))
+
+        # print(model_output.shape[0])
 
         for x, y in np.ndindex((3, 4)):
             axes[x, y].plot(data_input[randidx[x, y]], label="Data")
