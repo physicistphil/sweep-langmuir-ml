@@ -155,15 +155,6 @@ def train(hyperparams):
                                             feed_dict={model.training: True})
                 # Keep track of average loss
                 temp_loss_train += loss_train / num_batches
-
-                if i == 0 and epoch % 10 == 0:
-                    try:
-                        summary = sess.run(summaries_op, feed_dict={model.training: True,
-                                                                    model.data_train: data_train})
-                        summary_writer.add_summary(summary, epoch)
-                    except tf.errors.InvalidArgumentError:
-                        print("NaN in summary histogram; no summary generated.")
-
             loss_train = temp_loss_train
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
@@ -175,10 +166,18 @@ def train(hyperparams):
 
             # Every 10th epoch (or last epoch), calculate testing loss and maybe save the model.
             if epoch % 10 == 0 or epoch == hyperparams['steps'] - 1:
+                # Write summaries
+                try:
+                    summary = sess.run(summaries_op, feed_dict={model.training: False})
+                    summary_writer.add_summary(summary, epoch)
+                except tf.errors.InvalidArgumentError:
+                    print("NaN in summary histogram; no summary generated.")
+
+                # Evaluate on the test set
                 loss_test = 0
                 for i in range(num_test_batches):
-                    loss_test += (sess.run(model.loss_total, feed_dict={model.training: False}) /
-                                  num_test_batches)
+                    temp_loss_test = (sess.run(model.loss_total, feed_dict={model.training: False}))
+                    loss_test += temp_loss_test / num_test_batches
 
                 print("[" + "=" * 20 + "]", end="\t")
                 print(("Epoch {:5}\tT: {} \tLoss train: {:.3e} \tLoss test: {:.3e}")
@@ -188,6 +187,7 @@ def train(hyperparams):
                 wandb.log({'loss_train': loss_train}, step=epoch)
                 wandb.log({'loss_test': loss_test}, step=epoch)
                 model.plot_comparison(sess, data_test, hyperparams, fig_path, epoch)
+
                 if loss_test < best_loss:
                     best_loss = loss_test
                     saver.save(sess, "./saved_models/model-{}-best.ckpt".format(now))
@@ -221,15 +221,15 @@ if __name__ == '__main__':
                    # 'size_l1': 50,
                    # 'size_l2': 50,
                    # 'size_trans': 50,
-                   'filters': 3,
-                   'size_diff': 20,
+                   'filters': 4,
+                   'size_diff': 64,
                    'n_output': 256,
                    # Loss scaling weights (please normalize)
-                   'loss_rebuilt': 1.0,  # Controls the influence of the rebuilt curve
-                   'loss_theory': 0.0,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 5.0,  # Controls how small the discrepancy must be
+                   'loss_rebuilt': 2.0,  # Controls the influence of the rebuilt curve
+                   'loss_theory': 0.2,  # Controls how tightly the theory must fit the original
+                   'loss_discrepancy': 0.6,  # Controls how small the discrepancy must be
                    'l2_CNN': 0.00,
-                   'l2_discrepancy': 2.0,
+                   'l2_discrepancy': 4.0,
                    'l2_translator': 0.00,
                    # Optimization hyperparamters
                    'learning_rate': 1e-6,
@@ -241,11 +241,12 @@ if __name__ == '__main__':
                    'frac_train': 0.8,
                    'frac_test': 0.2,
                    # Training info
-                   'steps': 1000,
+                   'steps': 100,
                    'seed': 137,
-                   'restore': False,
-                   'restore_model': "model-20200327223847-final",
+                   'restore': True,
+                   'restore_model': "model-20200407190928-final",
                    'surrogate_model': "model-20200327211709-final"
                    }
-    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams)
+    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
+               notes="Restored from last (20200407190928)")
     train(hyperparams)
