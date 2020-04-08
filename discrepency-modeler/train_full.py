@@ -91,9 +91,11 @@ def train(hyperparams):
     # Process the curve coming out of the sweep model.
     model.build_theory_processor(hyperparams, surr_output, stop_gradient=False)
     # The discrepancy model tries to fit the difference between the original and analytic curves.
-    model.build_discrepancy_model(hyperparams, model.X[:, 0:hyperparams['n_inputs']],
-                                  (model.X[:, hyperparams['n_inputs']:] -
-                                   model.processed_theory))
+    # model.build_discrepancy_model(hyperparams, model.X[:, 0:hyperparams['n_inputs']],
+    #                               (model.X[:, hyperparams['n_inputs']:] -
+    #                                model.processed_theory))
+    # Instead learn the discrepancy from the CNN output (not on the difference).
+    model.build_learned_discrepancy_model(hyperparams, model.CNN_output)
 
     # Remove surrogate model from the list of trainable variables (to pass in to the optimizer)
     training_vars = tf.trainable_variables()

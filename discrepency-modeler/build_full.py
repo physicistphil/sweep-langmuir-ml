@@ -148,17 +148,21 @@ class Model:
             self.discrepancy_output = tf.identity(self.diff_layer1_activation,
                                                   name="discrepancy_output")
 
-            # Include just a simple line in the discrepancy model that it can add at no
-            #   regularization cost. It's constrained to be positive (starts at 0, positive slope)
-            # ones = tf.constant(1.0, shape=[hyperparams['n_inputs']])
-            # # Starting x-coordinate half way through the sweep.
-            # self.line_start = tf.Variable(initial_value=0.5)
-            # # Ending x-coordinate at the very end.
-            # self.line_end = tf.Variable(initial_value=1.0)
-            # # Start with a slope of 0.01.
-            # self.line_slope = tf.Variable(initial_value=0.01)
+    def build_learned_discrepancy_model(self, hyperparams, latent_rep):
+        dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
+                              .variance_scaling_initializer(seed=hyperparams['seed']),
+                              kernel_regularizer=tf.contrib.layers
+                              .l2_regularizer(hyperparams['l2_discrepancy']))
 
-            # self.diff_line = line_slope *
+        with tf.variable_scope("discrepancy"):
+            self.diff_layer0 = dense_layer(latent_rep, hyperparams['size_diff'],
+                                           name="diff_layer0")
+            self.diff_layer0_activation = (self.diff_layer0)
+            self.diff_layer1 = dense_layer(self.diff_layer0, hyperparams['n_output'],
+                                           name="diff_layer1")
+            self.diff_layer1_activation = (self.diff_layer1)
+            self.discrepancy_output = tf.identity(self.diff_layer1_activation,
+                                                  name="discrepancy_output")
 
     # Scale controls how wide the function is. The larger the scale, the larger the x-axis squish.
     def soft_sqrt(self, tensor, scale=1.0):
@@ -184,7 +188,7 @@ class Model:
                                               name="loss_theory") *
                                 hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
-            self.loss_discrepancy = (tf.reduce_sum(self.soft_sqrt(discrepancy, scale=3.0),
+            self.loss_discrepancy = (tf.reduce_sum(self.soft_sqrt(discrepancy, scale=5.0),
                                                    name="loss_discrepancy") *
                                      hyperparams['loss_discrepancy'] / loss_normalization)
 
