@@ -186,7 +186,7 @@ def train(hyperparams):
 
                 wandb.log({'loss_train': loss_train}, step=epoch)
                 wandb.log({'loss_test': loss_test}, step=epoch)
-                model.plot_comparison(sess, data_test, hyperparams, fig_path, epoch)
+                model.plot_comparison(sess, hyperparams, fig_path, epoch)
 
                 if loss_test < best_loss:
                     best_loss = loss_test

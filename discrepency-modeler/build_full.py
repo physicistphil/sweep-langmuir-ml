@@ -211,8 +211,8 @@ class Model:
         restorer.restore(sess, model_path)
         print("Model {} has been loaded.".format(model_path))
 
-    def plot_comparison(self, sess, data_input, hyperparams, save_path, epoch):
-        (model_output, theory_output, phys_numbers, data_mean, data_ptp, data_in
+    def plot_comparison(self, sess, hyperparams, save_path, epoch):
+        (model_output, theory_output, phys_numbers, data_mean, data_ptp, data_input
          ) = sess.run([self.model_output, self.processed_theory, self.plasma_info,
                        self.data_mean[hyperparams['n_inputs']:],
                        self.data_ptp[hyperparams['n_inputs']:],
@@ -221,7 +221,7 @@ class Model:
 
         batch_size = model_output.shape[0]
 
-        data_input = data_in[:, hyperparams['n_inputs']:] * data_ptp + data_mean
+        data_input = data_input[:, hyperparams['n_inputs']:] * data_ptp + data_mean
 
         model_output = model_output * data_ptp + data_mean
         theory_output = theory_output * data_ptp + data_mean
