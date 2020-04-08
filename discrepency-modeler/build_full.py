@@ -18,13 +18,13 @@ class Model:
             self.dataset_train = tf.data.Dataset.from_tensor_slices(self.data_train)
             self.dataset_train = self.dataset_train.batch(hyperparams['batch_size'])
             self.dataset_train = self.dataset_train.repeat()
-            self.dataset_train = self.dataset_train.prefetch(20)
+            self.dataset_train = self.dataset_train.prefetch(4)
             self.data_train_iter = self.dataset_train.make_initializable_iterator()
 
             self.dataset_test = tf.data.Dataset.from_tensor_slices(self.data_test)
             self.dataset_test = self.dataset_test.batch(hyperparams['batch_size'])
             self.dataset_test = self.dataset_test.repeat()
-            self.dataset_test = self.dataset_test.prefetch(20)
+            self.dataset_test = self.dataset_test.prefetch(4)
             self.data_test_iter = self.dataset_test.make_initializable_iterator()
 
             # No y because this whole thing is pretty much an AE
@@ -35,6 +35,8 @@ class Model:
         with tf.variable_scope("data"):
             self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
             self.X = tf.cond(self.training, true_fn=lambda: X_train, false_fn=lambda: X_test)
+            self.X = tf.identity(self.X, name="X")
+            self.X_shape = tf.shape(self.X)
 
             # X needs to be 4d for input into convolution layers
             self.X_reshaped = tf.reshape(self.X, [-1, 2, hyperparams['n_inputs'], 1])
@@ -113,7 +115,7 @@ class Model:
         # Divide by some constants to get physical numbers. The analytical model has these
         #   built in so that needs to be removed if the analytical model is chosen. Only take
         #   the first three components because the last one is for vsweep (and it's just 1.0).
-        self.plasma_info = self.phys_input / scalefactor[0:3]
+        self.plasma_info = tf.identity(self.phys_input / scalefactor[0:3], name="plasma_info")
 
     def build_variational_translator(self, hyperparams):
         pass
@@ -124,9 +126,9 @@ class Model:
                          self.data_ptp[hyperparams['n_inputs']:])
 
         if stop_gradient:
-            self.processed_theory = tf.stop_gradient(scaled_theory)
+            self.processed_theory = tf.stop_gradient(scaled_theory, name="processed_theory")
         else:
-            self.processed_theory = tf.identity(scaled_theory)
+            self.processed_theory = tf.identity(scaled_theory, name="processed_theory")
 
     def build_discrepancy_model(self, hyperparams, vsweep, difference):
         dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
@@ -172,7 +174,7 @@ class Model:
             loss_normalization = (hyperparams['loss_rebuilt'] + hyperparams['loss_theory'] +
                                   hyperparams['loss_discrepancy'])
 
-            self.model_output = theory + discrepancy
+            self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
             self.loss_rebuilt = (tf.reduce_sum(self.soft_sqrt(original - self.model_output),
                                                name="loss_rebuilt") *
