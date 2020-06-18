@@ -19,34 +19,10 @@ import generate
 # From the directory
 import build_full
 import build_analytic  # for the analytical model
+import get_data
 
 # weights and biases -- ML experiment tracker
 import wandb
-
-
-# Get data from real experiments (so far just from the mirror dataset).
-def get_real_data(hyperparams):
-    print("Getting data...", end=" ")
-    sys.stdout.flush()
-    n_inputs = hyperparams['n_inputs']
-    signal = preprocess.get_mirror_data_with_sweeps(n_inputs)
-
-    # Find the voltage sweep and current means and peak-to-peaks so the model is easier to train.
-    vsweep_mean = np.full(hyperparams['n_inputs'], np.mean(signal[:, 0:n_inputs]))
-    vsweep_ptp = np.full(hyperparams['n_inputs'], np.ptp(signal[:, 0:n_inputs]))
-    current_mean = np.full(hyperparams['n_inputs'], np.mean(signal[:, n_inputs:]))
-    current_ptp = np.full(hyperparams['n_inputs'], np.ptp(signal[:, n_inputs:]))
-    # Combine the two so we have a nice neat X, y, and scalings tuple returned by the function.
-    data_mean = np.concatenate((vsweep_mean, current_mean))
-    data_ptp = np.concatenate((vsweep_ptp, current_ptp))
-
-    # Voltage and current sweeps are already concatenated.
-    # Centering and scaling the input so that it's easier to train.
-    data = (signal - data_mean) / data_ptp
-    data_train, data_test, data_valid = preprocess.shuffle_split_data(data, hyperparams)
-    print("Done.")
-
-    return data_train, data_test, data_valid, data_mean, data_ptp
 
 
 def train(hyperparams):
@@ -55,9 +31,8 @@ def train(hyperparams):
     os.mkdir("plots/fig-{}".format(now))
     fig_path = "plots/fig-{}/".format(now)
 
-    # Gather all the data. Stack the mean and ptp as if they're examples, but trim them off when
-    #   we actually build the model.
-    data_train, data_test, data_valid, data_mean, data_ptp = get_real_data(hyperparams)
+    # Gather all the data.
+    data_train, data_test, data_valid, data_mean, data_ptp = get_data.sample_datasets(hyperparams)
     num_batches = int(np.ceil(data_train.shape[0] / hyperparams['batch_size']))
     num_test_batches = int(np.ceil(data_test.shape[0] / hyperparams['batch_size']))
     # Maybe delete after? Oh well.
@@ -68,12 +43,13 @@ def train(hyperparams):
     model.build_data_pipeline(hyperparams, data_mean, data_ptp)
 
     # Build the component that compresses the sweep into some latent space
+    # Keep in mind that the values after n_inputs * 2 are the physical parameters.
     model.build_CNN(hyperparams, model.data_X_train, model.data_X_test)
 
     # Build the network that translates from the CNN output to the Langmuir sweep model
     model.build_linear_translator(hyperparams, model.CNN_output)
 
-    # Get the surrogate model and connect it to our current model.
+    # Get the surrogate model and connect it to our current model (and providing vsweep).
     surrogate_X = tf.concat([model.phys_input,
                              model.X[:, 0:hyperparams['n_inputs']] *
                              model.data_ptp[0:hyperparams['n_inputs']] +
@@ -90,10 +66,6 @@ def train(hyperparams):
     model.build_plasma_info(scalefactor)
     # Process the curve coming out of the sweep model.
     model.build_theory_processor(hyperparams, surr_output, stop_gradient=False)
-    # The discrepancy model tries to fit the difference between the original and analytic curves.
-    # model.build_discrepancy_model(hyperparams, model.X[:, 0:hyperparams['n_inputs']],
-    #                               (model.X[:, hyperparams['n_inputs']:] -
-    #                                model.processed_theory))
     # Instead learn the discrepancy from the CNN output (not on the difference).
     model.build_learned_discrepancy_model(hyperparams, model.CNN_output)
 
@@ -103,9 +75,9 @@ def train(hyperparams):
     for var in removelist:
         training_vars.remove(var)
     model.vars = training_vars
-    # Calculate all the losses (full curve, theory fit, discrepancy size, regularization)
+    # Calculate all the losses (full curve, theory fit, discrepancy size, regularization, physics)
     model.build_loss(hyperparams, model.X[:, hyperparams['n_inputs']:],
-                     model.processed_theory, model.discrepancy_output)
+                     model.processed_theory, model.discrepancy_output, model.X_phys, scalefactor)
 
     # Log values of gradients and variables for tensorboard.
     for grad, var in model.grads:
@@ -217,6 +189,7 @@ def train(hyperparams):
 
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 256,  # Number of points to define the voltage sweep.
+                   'n_flag_inputs': 1,  # Flag to enable / disable physical parameter loss.
                    'n_phys_inputs': 3,  # n_e, V_p and T_e (for now).
                    # 'size_l1': 50,
                    # 'size_l2': 50,
@@ -224,15 +197,16 @@ if __name__ == '__main__':
                    'filters': 4,
                    'size_diff': 64,
                    'n_output': 256,
-                   # Loss scaling weights (please normalize)
+                   # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
                    'loss_rebuilt': 2.0,  # Controls the influence of the rebuilt curve
-                   'loss_theory': 0.2,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.6,  # Controls how small the discrepancy must be
+                   'loss_theory': 0.1,  # Controls how tightly the theory must fit the original
+                   'loss_discrepancy': 0.1,  # Controls how small the discrepancy must be
+                   'loss_physics': 1.0,  # Not included in norm. Loss weight of phys params.
                    'l2_CNN': 0.00,
                    'l2_discrepancy': 4.0,
                    'l2_translator': 0.00,
                    # Optimization hyperparamters
-                   'learning_rate': 1e-6,
+                   'learning_rate': 1e-5,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'batch_size': 1024,
@@ -241,12 +215,17 @@ if __name__ == '__main__':
                    'frac_train': 0.8,
                    'frac_test': 0.2,
                    # Training info
-                   'steps': 100,
+                   'steps': 1000,
                    'seed': 137,
-                   'restore': True,
-                   'restore_model': "model-20200407190928-final",
-                   'surrogate_model': "model-20200327211709-final"
+                   'restore': False,
+                   'restore_model': "model-????-final",
+                   'surrogate_model': "model-20200327211709-final",
+                   # Mirror dataset only has 16320 sweeps total.
+                   'num_examples': 2 ** 14 - 64,  # Number of examples to sample from each dataset
+                   'num_synthetic_examples': 5 * 2 ** 14,  # Number of synthetic examples to use
+                   'offset_scale': 0.0,
+                   'noise_scale': 0.4
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Restored from last (20200407190928)")
+               notes="First stab at combining synthetic and real data -- and a lot more real data")
     train(hyperparams)

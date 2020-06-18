@@ -7,8 +7,12 @@ from matplotlib import pyplot as plt
 class Model:
     def build_data_pipeline(self, hyperparams, data_mean, data_ptp):
         with tf.variable_scope("pipeline"):
-            self.data_train = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2])
-            self.data_test = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2])
+            self.data_train = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
+                                                          hyperparams['n_flag_inputs'] +
+                                                          hyperparams['n_phys_inputs']])
+            self.data_test = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
+                                                         hyperparams['n_flag_inputs'] +
+                                                         hyperparams['n_phys_inputs']])
 
             # Keep mean and ptp in the graph so they can be accessed outside of the model.
             self.data_mean = tf.constant(data_mean, dtype=np.float32, name="data_mean")
@@ -35,7 +39,8 @@ class Model:
         with tf.variable_scope("data"):
             self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
             self.X = tf.cond(self.training, true_fn=lambda: X_train, false_fn=lambda: X_test)
-            self.X = tf.identity(self.X, name="X")
+            self.X_phys = tf.identity(self.X[:, hyperparams['n_inputs'] * 2:], name="X_phys")
+            self.X = tf.identity(self.X[:, 0:hyperparams['n_inputs'] * 2], name="X")
             self.X_shape = tf.shape(self.X)
 
             # X needs to be 4d for input into convolution layers
@@ -58,42 +63,42 @@ class Model:
         filters = hyperparams['filters']
 
         with tf.variable_scope("nn"):
-                self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
-                                              kernel_size=(2, 5), strides=(1, 1))
-                # Just keep middle row (making the height dimension padding 'valid').
-                # We need 1:2 (instead of just 1) to preserve the dimension.
-                self.layer_conv0_activation = tf.nn.elu((self.layer_conv0[:, :, :, :]))
-                self.layer_pool0 = pool_layer(self.layer_conv0_activation, name="layer_pool0",
-                                              pool_size=(1, 5), strides=(1, 2))
+            self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
+                                          kernel_size=(2, 5), strides=(1, 1))
+            # Just keep middle row (making the height dimension padding 'valid').
+            # We need 1:2 (instead of just 1) to preserve the dimension.
+            self.layer_conv0_activation = tf.nn.elu((self.layer_conv0[:, :, :, :]))
+            self.layer_pool0 = pool_layer(self.layer_conv0_activation, name="layer_pool0",
+                                          pool_size=(1, 5), strides=(1, 2))
 
-                self.layer_conv1 = conv_layer(self.layer_pool0, name="layer_conv1", filters=filters,
-                                              kernel_size=(2, 5), strides=(1, 1))
-                self.layer_conv1_activation = tf.nn.elu((self.layer_conv1))
-                self.layer_pool1 = pool_layer(self.layer_conv1_activation, name="layer_pool1",
-                                              pool_size=(1, 5), strides=(1, 2))
+            self.layer_conv1 = conv_layer(self.layer_pool0, name="layer_conv1", filters=filters,
+                                          kernel_size=(2, 5), strides=(1, 1))
+            self.layer_conv1_activation = tf.nn.elu((self.layer_conv1))
+            self.layer_pool1 = pool_layer(self.layer_conv1_activation, name="layer_pool1",
+                                          pool_size=(1, 5), strides=(1, 2))
 
-                self.layer_conv2 = conv_layer(self.layer_pool1, name="layer_conv2", filters=filters,
-                                              kernel_size=(2, 5), strides=(1, 1))
-                self.layer_conv2_activation = tf.nn.elu((self.layer_conv2))
-                self.layer_pool2 = pool_layer(self.layer_conv2_activation, name="layer_pool2",
-                                              pool_size=(1, 5), strides=(1, 2))
+            self.layer_conv2 = conv_layer(self.layer_pool1, name="layer_conv2", filters=filters,
+                                          kernel_size=(2, 5), strides=(1, 1))
+            self.layer_conv2_activation = tf.nn.elu((self.layer_conv2))
+            self.layer_pool2 = pool_layer(self.layer_conv2_activation, name="layer_pool2",
+                                          pool_size=(1, 5), strides=(1, 2))
 
-                self.layer_conv3 = conv_layer(self.layer_pool2, name="layer_conv3", filters=filters,
-                                              kernel_size=(2, 5), strides=(1, 1))
-                self.layer_conv3_activation = tf.nn.elu((self.layer_conv3))
-                self.layer_pool3 = pool_layer(self.layer_conv3_activation, name="layer_pool3",
-                                              pool_size=(1, 5), strides=(1, 2))
+            self.layer_conv3 = conv_layer(self.layer_pool2, name="layer_conv3", filters=filters,
+                                          kernel_size=(2, 5), strides=(1, 1))
+            self.layer_conv3_activation = tf.nn.elu((self.layer_conv3))
+            self.layer_pool3 = pool_layer(self.layer_conv3_activation, name="layer_pool3",
+                                          pool_size=(1, 5), strides=(1, 2))
 
-                self.layer_conv4 = conv_layer(self.layer_pool3, name="layer_conv4", filters=filters,
-                                              kernel_size=(2, 5), strides=(1, 1))
-                self.layer_conv4_activation = tf.nn.elu((self.layer_conv4))
-                self.layer_pool4 = pool_layer(self.layer_conv4_activation, name="layer_pool4",
-                                              pool_size=(1, 5), strides=(1, 2))
+            self.layer_conv4 = conv_layer(self.layer_pool3, name="layer_conv4", filters=filters,
+                                          kernel_size=(2, 5), strides=(1, 1))
+            self.layer_conv4_activation = tf.nn.elu((self.layer_conv4))
+            self.layer_pool4 = pool_layer(self.layer_conv4_activation, name="layer_pool4",
+                                          pool_size=(1, 5), strides=(1, 2))
 
-                # Reshape for input into dense layers or whatever (TensorFlow needs explicit
-                #   dimensions for NNs except for the batch size).
-                self.conv_flattened = tf.reshape(self.layer_pool4, [-1, 2 * middle_size * filters])
-                self.CNN_output = tf.identity(self.conv_flattened, name='CNN_output')
+            # Reshape for input into dense layers or whatever (TensorFlow needs explicit
+            #   dimensions for NNs except for the batch size).
+            self.conv_flattened = tf.reshape(self.layer_pool4, [-1, 2 * middle_size * filters])
+            self.CNN_output = tf.identity(self.conv_flattened, name='CNN_output')
 
     def build_linear_translator(self, hyperparams, translator_input):
         dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
@@ -173,10 +178,16 @@ class Model:
                          y=absolute)
         return value
 
-    def build_loss(self, hyperparams, original, theory, discrepancy):
+    def build_loss(self, hyperparams, original, theory, discrepancy,
+                   original_phys_num, scalefactor):
         with tf.variable_scope("loss"):
             loss_normalization = (hyperparams['loss_rebuilt'] + hyperparams['loss_theory'] +
                                   hyperparams['loss_discrepancy'])
+
+            self.loss_physics = (hyperparams['loss_physics'] * 0.5 *
+                                 tf.reduce_sum(tf.expand_dims(original_phys_num[:, 0], 1) *
+                                               (original_phys_num[:, 1:4] *
+                                                scalefactor[0:3] - self.phys_input) ** 2))
 
             self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
@@ -193,7 +204,8 @@ class Model:
                                      hyperparams['loss_discrepancy'] / loss_normalization)
 
             # Divide model loss by batch size to keep loss consistent regardless of input size.
-            self.loss_model = (self.loss_rebuilt + self.loss_theory + self.loss_discrepancy /
+            self.loss_model = ((self.loss_rebuilt + self.loss_theory +
+                                self.loss_discrepancy + self.loss_physics) /
                                tf.cast(tf.shape(self.model_output)[0], tf.float32))
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_model] + self.loss_reg, name="loss_total")
