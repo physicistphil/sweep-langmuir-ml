@@ -64,13 +64,15 @@ def sample_datasets(hyperparams):
     sweeps = np.concatenate([sweeps, np.zeros((sweeps.shape[0], 4))], axis=1)
 
     synthetic_data = np.load("../../data_synthetic/16-18_0-20_0-5-10_-50--20_20-60.npz")['sweeps']
-    # Apply noise.
-    # preprocess.add_offset(data_test, hyperparams, epoch=0)
-    # preprocess.add_real_noise(data_test, hyperparams, epoch=0)
     # Load in synthetic data (which already has the extra flag and physical parameters).
     np.random.seed(seed + 5)
     np.random.shuffle(synthetic_data)
     synthetic_data = synthetic_data[0:num_synthetic_examples]
+    # Apply noise and offset
+    # preprocess.add_offset(data_test, hyperparams, epoch=0)
+    synthetic_data[:, 0:n_inputs * 2] = preprocess.add_real_noise(synthetic_data[:, 0:n_inputs * 2],
+                                                                  hyperparams, epoch=0)
+
     sweeps = np.concatenate([sweeps, synthetic_data])
     del synthetic_data
 

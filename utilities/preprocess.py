@@ -139,6 +139,7 @@ def add_real_noise(X, hyperparams, epoch=0):
     spectrum_path = "../../data/"
     fft_abs = np.load(spectrum_path + "fft_abs.npz")['fft_abs']
     fft_abs = np.mean(fft_abs, axis=1)[0][np.newaxis, :]  # Average over shots, r = 0 cm position.
+    fft_abs = fft_abs[:, 0:hyperparams['n_inputs']]
 
     # Add the current epoch so we get some variety over the entire training run.
     seed = hyperparams['seed'] + epoch
@@ -151,7 +152,7 @@ def add_real_noise(X, hyperparams, epoch=0):
                                 phase(random_angle))) / 0.1
     # Scale noise by a random number so there are some sweeps with noise and some without much.
     np.random.seed(seed)
-    random_scalaing = np.random.uniform(0.0, 1.0, size=(X.shape[0], 1))
-    X[:, hyperparams['n_inputs']:] += noise * noise_scale[:, np.newaxis] * random_scalaing
+    random_scaling = np.random.uniform(0.0, 1.0, size=(X.shape[0], 1))
+    X[:, hyperparams['n_inputs']:] += noise * noise_scale[:, np.newaxis] * random_scaling
 
     return X
