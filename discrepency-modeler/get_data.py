@@ -24,30 +24,30 @@ def sample_datasets(hyperparams):
     # Shuffle the data so that we can easily sample without replacement.
     np.random.seed(seed)
     np.random.shuffle(mirror_data)
-    mirror_data = mirror_data[0:num_examples]
+    mirror_data = mirror_data[0:16320 if num_examples > 16320 else num_examples]
 
     lapd_edge1_data = np.load("../../data_from_others/Gurleen_data/edge1.npz")['sweeps']
     np.random.seed(seed + 1)
     np.random.shuffle(lapd_edge1_data)
-    lapd_edge1_data = lapd_edge1_data[0:num_examples]
+    lapd_edge1_data = lapd_edge1_data[0:72900 if num_examples > 72900 else num_examples]
 
     lapd_edge2_data = np.load("../../data_from_others/Gurleen_data/edge2.npz")['sweeps']
     np.random.seed(seed + 2)
     np.random.shuffle(lapd_edge2_data)
-    lapd_edge2_data = lapd_edge2_data[0:num_examples]
+    lapd_edge2_data = lapd_edge2_data[0:78300 if num_examples > 78300 else num_examples]
 
     lapd_core_data = np.load("../../data_from_others/Gurleen_data/core.npz")['sweeps']
     np.random.seed(seed + 3)
     np.random.shuffle(lapd_core_data)
-    lapd_core_data = lapd_core_data[0:num_examples]
+    lapd_core_data = lapd_core_data[0:311170 if num_examples > 311170 else num_examples]
 
     smpd_data = np.load("../../data_from_others/Kamil_data/01_xy.npz")['sweeps']
     # Multiply by 2.105 to normalzie to a probe size of 2e-6. "Best guess" for the probe in the
     #   SMPD was "0.9 - 1.0 mm^2", whatever that means.
-    smpd_data[:, n_inputs:] *= 2.105
+    #smpd_data[:, n_inputs:] *= 2.105
     np.random.seed(seed + 4)
     np.random.shuffle(smpd_data)
-    smpd_data = smpd_data[0:num_examples]
+    smpd_data = smpd_data[0:454410 if num_examples > 454410 else num_examples ]
 
     # Merge all the dataset samples into one big one.
     sweeps = np.concatenate([mirror_data, lapd_edge1_data, lapd_edge2_data,
