@@ -22,13 +22,15 @@ class Model:
             self.dataset_train = tf.data.Dataset.from_tensor_slices(self.data_train)
             self.dataset_train = self.dataset_train.batch(hyperparams['batch_size'])
             self.dataset_train = self.dataset_train.repeat()
-            self.dataset_train = self.dataset_train.prefetch(4)
+            self.dataset_train = self.dataset_train.apply(tf.data.experimental.copy_to_device("/gpu:0"))
+            self.dataset_train = self.dataset_train.prefetch(tf.contrib.data.AUTOTUNE)
             self.data_train_iter = self.dataset_train.make_initializable_iterator()
 
             self.dataset_test = tf.data.Dataset.from_tensor_slices(self.data_test)
             self.dataset_test = self.dataset_test.batch(hyperparams['batch_size'])
             self.dataset_test = self.dataset_test.repeat()
-            self.dataset_test = self.dataset_test.prefetch(4)
+            self.dataset_test = self.dataset_test.apply(tf.data.experimental.copy_to_device("/gpu:0"))
+            self.dataset_test = self.dataset_test.prefetch(tf.contrib.data.AUTOTUNE)
             self.data_test_iter = self.dataset_test.make_initializable_iterator()
 
             # No y because this whole thing is pretty much an AE
