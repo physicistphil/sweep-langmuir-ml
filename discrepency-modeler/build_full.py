@@ -22,14 +22,16 @@ class Model:
             self.dataset_train = tf.data.Dataset.from_tensor_slices(self.data_train)
             self.dataset_train = self.dataset_train.batch(hyperparams['batch_size'])
             self.dataset_train = self.dataset_train.repeat()
-            self.dataset_train = self.dataset_train.apply(tf.data.experimental.copy_to_device("/gpu:0"))
+            self.dataset_train = self.dataset_train.apply(tf.data.experimental.
+                                                          copy_to_device("/gpu:0"))
             self.dataset_train = self.dataset_train.prefetch(tf.contrib.data.AUTOTUNE)
             self.data_train_iter = self.dataset_train.make_initializable_iterator()
 
             self.dataset_test = tf.data.Dataset.from_tensor_slices(self.data_test)
             self.dataset_test = self.dataset_test.batch(hyperparams['batch_size'])
             self.dataset_test = self.dataset_test.repeat()
-            self.dataset_test = self.dataset_test.apply(tf.data.experimental.copy_to_device("/gpu:0"))
+            self.dataset_test = self.dataset_test.apply(tf.data.experimental.
+                                                        copy_to_device("/gpu:0"))
             self.dataset_test = self.dataset_test.prefetch(tf.contrib.data.AUTOTUNE)
             self.data_test_iter = self.dataset_test.make_initializable_iterator()
 
@@ -109,6 +111,12 @@ class Model:
                               .l2_regularizer(hyperparams['l2_translator']))
 
         with tf.variable_scope("trans"):
+            # This is the learned offset for the sweep to be applied to theory curves.
+            self.layer_offset = dense_layer(translator_input, 1, name="layer_offset")
+            self.layer_offset_activation = tf.identity(self.layer_offset,
+                                                       name="layer_offset_activation") / 100.0
+            # Divided by 100 to make it easier to learn.
+
             self.layer_convert = dense_layer(translator_input, hyperparams['n_phys_inputs'],
                                              name="layer_convert")
             self.layer_convert_activation = tf.identity(self.layer_convert,
@@ -128,9 +136,11 @@ class Model:
         pass
 
     def build_theory_processor(self, hyperparams, theory_output, stop_gradient):
-        # Scale the theory output to match that of the input curves.
+        # Scale the (physical) theory output to match that of the input curves (which *was* scaled)
         scaled_theory = ((theory_output - self.data_mean[hyperparams['n_inputs']:]) /
                          self.data_ptp[hyperparams['n_inputs']:])
+        # Add the learned sweep offset
+        scaled_theory = scaled_theory + self.layer_offset_activation
 
         if stop_gradient:
             self.processed_theory = tf.stop_gradient(scaled_theory, name="processed_theory")
