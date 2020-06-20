@@ -44,10 +44,10 @@ def sample_datasets(hyperparams):
     smpd_data = np.load("../../data_from_others/Kamil_data/01_xy.npz")['sweeps']
     # Multiply by 2.105 to normalzie to a probe size of 2e-6. "Best guess" for the probe in the
     #   SMPD was "0.9 - 1.0 mm^2", whatever that means.
-    #smpd_data[:, n_inputs:] *= 2.105
+    # smpd_data[:, n_inputs:] *= 2.105
     np.random.seed(seed + 4)
     np.random.shuffle(smpd_data)
-    smpd_data = smpd_data[0:454410 if num_examples > 454410 else num_examples ]
+    smpd_data = smpd_data[0:454410 if num_examples > 454410 else num_examples]
 
     # Merge all the dataset samples into one big one.
     sweeps = np.concatenate([mirror_data, lapd_edge1_data, lapd_edge2_data,
@@ -63,18 +63,19 @@ def sample_datasets(hyperparams):
     #   not included for physical sweeps because they have not been analyzed yet.
     sweeps = np.concatenate([sweeps, np.zeros((sweeps.shape[0], 4))], axis=1)
 
-    synthetic_data = np.load("../../data_synthetic/16-18_0-20_0-5-10_-50--20_20-60.npz")['sweeps']
-    # Load in synthetic data (which already has the extra flag and physical parameters).
-    np.random.seed(seed + 5)
-    np.random.shuffle(synthetic_data)
-    synthetic_data = synthetic_data[0:num_synthetic_examples]
-    # Apply noise and offset
-    # preprocess.add_offset(data_test, hyperparams, epoch=0)
-    synthetic_data[:, 0:n_inputs * 2] = preprocess.add_real_noise(synthetic_data[:, 0:n_inputs * 2],
-                                                                  hyperparams, epoch=0)
-
-    sweeps = np.concatenate([sweeps, synthetic_data])
-    del synthetic_data
+    if hyperparams['num_synthetic_examples'] != 0:
+        synthetic_data_path = "../../data_synthetic/16-18_0-20_0-5-10_-50--20_20-60.npz"
+        synthetic_data = np.load(synthetic_data_path)['sweeps']
+        # Load in synthetic data (which already has the extra flag and physical parameters).
+        np.random.seed(seed + 5)
+        np.random.shuffle(synthetic_data)
+        synthetic_data = synthetic_data[0:num_synthetic_examples]
+        # Apply noise and offset
+        # preprocess.add_offset(data_test, hyperparams, epoch=0)
+        synthetic_data[:, 0:n_inputs * 2] = preprocess.add_real_noise(synthetic_data[:,0:n_inputs * 2],
+                                                                      hyperparams, epoch=0)
+        sweeps = np.concatenate([sweeps, synthetic_data])
+        del synthetic_data
 
     # Shuffle the datasets together.
     # np.random.seed(seed + 6)
