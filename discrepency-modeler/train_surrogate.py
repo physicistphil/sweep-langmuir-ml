@@ -173,7 +173,7 @@ if __name__ == '__main__':
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'l2_scale': 0.00,
-                   'batch_size': 1024,  # Actual batch size is n_inputs * batch_size (see build_NN)
+                   'batch_size': 256,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
                    'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info
