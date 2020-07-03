@@ -201,17 +201,18 @@ if __name__ == '__main__':
                    'loss_rebuilt': 1.0,  # Controls the influence of the rebuilt curve
                    'loss_theory': 0.005,  # Controls how tightly the theory must fit the original
                    'loss_discrepancy': 0.005,  # Controls how small the discrepancy must be
-                   'loss_physics': 1.0,  # Not included in norm. Loss weight of phys params.
-                   'loss_phys_penalty': 0.001,  # Penalize size of physical params
+                   'loss_physics': 0.0,  # Not included in norm. Loss weight of phys params.
+                   'loss_phys_penalty': 0.0,  # Penalize size of physical params
+                   'l1_CNN_output': 0.0,  # l1 on output of CNN
                    'l2_CNN': 0.00,
-                   'l2_discrepancy': 4.0,
+                   'l2_discrepancy': 0.1,
                    'l2_translator': 0.00,
                    # Optimization hyperparamters
                    'learning_rate': 1e-4,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'batch_size': 1024,
-                   # Data paramters
+                   # Data parameters
                    # 'num_batches': 16,  # Number of batches trained in each epoch.
                    'frac_train': 0.8,
                    'frac_test': 0.2,
@@ -222,11 +223,11 @@ if __name__ == '__main__':
                    'restore_model': "model-????-final",
                    'surrogate_model': "model-20200327211709-final",
                    # Mirror dataset only has 16320 sweeps total.
-                   'num_examples': 2 ** 20,  # Examples from each dataset (use all if # too large)
+                   'num_examples': 2 ** 14,  # Examples from each dataset (use all if # too large)
                    'num_synthetic_examples': 0,  # Number of synthetic examples to use
                    'offset_scale': 0.0,
                    'noise_scale': 0.4
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Trying out soft sqrt on physical parameters")
+               notes="Same as 20200701210418 but with equal same amount of data from each set")
     train(hyperparams)

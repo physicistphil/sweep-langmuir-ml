@@ -204,6 +204,9 @@ class Model:
             self.loss_phys_penalty = (hyperparams['loss_phys_penalty'] *
                                       tf.reduce_sum(self.soft_sqrt(self.phys_input, scale=10.0)))
 
+            self.l1_CNN_output = (hyperparams['l1_CNN_output'] *
+                                  tf.reduce_sum(tf.math.abs(self.CNN_output)))
+
             self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
             self.loss_rebuilt = (tf.reduce_sum(self.soft_sqrt(original - self.model_output),
@@ -221,7 +224,7 @@ class Model:
             # Divide model loss by batch size to keep loss consistent regardless of input size.
             self.loss_model = ((self.loss_rebuilt + self.loss_theory +
                                 self.loss_discrepancy + self.loss_physics +
-                                self.loss_phys_penalty) /
+                                self.loss_phys_penalty + self.l1_CNN_output) /
                                tf.cast(tf.shape(self.model_output)[0], tf.float32))
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_model] + self.loss_reg, name="loss_total")
