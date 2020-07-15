@@ -63,45 +63,60 @@ class Model:
         batch_norm = partial(tf.layers.batch_normalization, training=self.training,
                              momentum=hyperparams['momentum'])
 
-        middle_size = 8
+        # middle_size = 8
+        middle_size = 16
         filters = hyperparams['filters']
 
         with tf.variable_scope("nn"):
+            # self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
+            #                               kernel_size=(2, 5), strides=(1, 1))
+            # # Just keep middle row (making the height dimension padding 'valid').
+            # # We need 1:2 (instead of just 1) to preserve the dimension.
+            # self.layer_conv0_activation = tf.nn.elu((self.layer_conv0[:, :, :, :]))
+            # self.layer_pool0 = pool_layer(self.layer_conv0_activation, name="layer_pool0",
+            #                               pool_size=(1, 5), strides=(1, 2))
+
+            # self.layer_conv1 = conv_layer(self.layer_pool0, name="layer_conv1", filters=filters,
+            #                               kernel_size=(2, 5), strides=(1, 1))
+            # self.layer_conv1_activation = tf.nn.elu((self.layer_conv1))
+            # self.layer_pool1 = pool_layer(self.layer_conv1_activation, name="layer_pool1",
+            #                               pool_size=(1, 5), strides=(1, 2))
+
+            # self.layer_conv2 = conv_layer(self.layer_pool1, name="layer_conv2", filters=filters,
+            #                               kernel_size=(2, 5), strides=(1, 1))
+            # self.layer_conv2_activation = tf.nn.elu((self.layer_conv2))
+            # self.layer_pool2 = pool_layer(self.layer_conv2_activation, name="layer_pool2",
+            #                               pool_size=(1, 5), strides=(1, 2))
+
+            # self.layer_conv3 = conv_layer(self.layer_pool2, name="layer_conv3", filters=filters,
+            #                               kernel_size=(2, 5), strides=(1, 1))
+            # self.layer_conv3_activation = tf.nn.elu((self.layer_conv3))
+            # self.layer_pool3 = pool_layer(self.layer_conv3_activation, name="layer_pool3",
+            #                               pool_size=(1, 5), strides=(1, 2))
+
+            # self.layer_conv4 = conv_layer(self.layer_pool3, name="layer_conv4", filters=filters,
+            #                               kernel_size=(2, 5), strides=(1, 1))
+            # self.layer_conv4_activation = tf.nn.elu((self.layer_conv4))
+            # self.layer_pool4 = pool_layer(self.layer_conv4_activation, name="layer_pool4",
+            #                               pool_size=(1, 5), strides=(1, 2))
+
             self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
-                                          kernel_size=(2, 5), strides=(1, 1))
+                                          kernel_size=(2, 16), strides=(1, 2))
             # Just keep middle row (making the height dimension padding 'valid').
             # We need 1:2 (instead of just 1) to preserve the dimension.
             self.layer_conv0_activation = tf.nn.elu((self.layer_conv0[:, :, :, :]))
             self.layer_pool0 = pool_layer(self.layer_conv0_activation, name="layer_pool0",
-                                          pool_size=(1, 5), strides=(1, 2))
+                                          pool_size=(1, 16), strides=(1, 2))
 
             self.layer_conv1 = conv_layer(self.layer_pool0, name="layer_conv1", filters=filters,
-                                          kernel_size=(2, 5), strides=(1, 1))
-            self.layer_conv1_activation = tf.nn.elu((self.layer_conv1))
+                                          kernel_size=(2, 16), strides=(1, 2))
+            self.layer_conv1_activation = tf.nn.elu((self.layer_conv1[:, :, :, :]))
             self.layer_pool1 = pool_layer(self.layer_conv1_activation, name="layer_pool1",
-                                          pool_size=(1, 5), strides=(1, 2))
-
-            self.layer_conv2 = conv_layer(self.layer_pool1, name="layer_conv2", filters=filters,
-                                          kernel_size=(2, 5), strides=(1, 1))
-            self.layer_conv2_activation = tf.nn.elu((self.layer_conv2))
-            self.layer_pool2 = pool_layer(self.layer_conv2_activation, name="layer_pool2",
-                                          pool_size=(1, 5), strides=(1, 2))
-
-            self.layer_conv3 = conv_layer(self.layer_pool2, name="layer_conv3", filters=filters,
-                                          kernel_size=(2, 5), strides=(1, 1))
-            self.layer_conv3_activation = tf.nn.elu((self.layer_conv3))
-            self.layer_pool3 = pool_layer(self.layer_conv3_activation, name="layer_pool3",
-                                          pool_size=(1, 5), strides=(1, 2))
-
-            self.layer_conv4 = conv_layer(self.layer_pool3, name="layer_conv4", filters=filters,
-                                          kernel_size=(2, 5), strides=(1, 1))
-            self.layer_conv4_activation = tf.nn.elu((self.layer_conv4))
-            self.layer_pool4 = pool_layer(self.layer_conv4_activation, name="layer_pool4",
-                                          pool_size=(1, 5), strides=(1, 2))
+                                          pool_size=(1, 16), strides=(1, 2))
 
             # Reshape for input into dense layers or whatever (TensorFlow needs explicit
             #   dimensions for NNs except for the batch size).
-            self.conv_flattened = tf.reshape(self.layer_pool4, [-1, 2 * middle_size * filters])
+            self.conv_flattened = tf.reshape(self.layer_pool1, [-1, 2 * middle_size * filters])
             self.CNN_output = tf.identity(self.conv_flattened, name='CNN_output')
 
     def build_linear_translator(self, hyperparams, translator_input):
