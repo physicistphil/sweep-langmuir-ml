@@ -32,10 +32,13 @@ def train(hyperparams):
     fig_path = "plots/fig-{}/".format(now)
 
     # Gather all the data.
-    data_train, data_test, data_valid, data_mean, data_ptp = get_data.sample_datasets(hyperparams)
+    data_train, data_test, data_valid, data_mean, data_ptp = get_data.sample_datasets(hyperparams,
+                                                                                      good_only=True)
     num_batches = int(np.ceil(data_train.shape[0] / hyperparams['batch_size']))
     num_test_batches = int(np.ceil(data_test.shape[0] / hyperparams['batch_size']))
     # Maybe delete after? Oh well.
+    wandb.log({"num_ex_actual": data_train.shape[0] + data_test.shape[0] + data_valid.shape[0]},
+              step=0)
 
     # Build the model to train.
     model = build_full.Model()
@@ -199,12 +202,12 @@ if __name__ == '__main__':
                    'n_output': 256,
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
                    'loss_rebuilt': 1.0,  # Controls the influence of the rebuilt curve
-                   'loss_theory': 0.005,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.005,  # Controls how small the discrepancy must be
+                   'loss_theory': 0.0,  # Controls how tightly the theory must fit the original
+                   'loss_discrepancy': 0.05,  # Controls how small the discrepancy must be
                    'loss_physics': 0.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
-                   'l2_CNN': 0.00,
+                   'l2_CNN': 0.25,
                    'l2_discrepancy': 0.1,
                    'l2_translator': 0.00,
                    # Optimization hyperparamters
@@ -223,11 +226,11 @@ if __name__ == '__main__':
                    'restore_model': "model-????-final",
                    'surrogate_model': "model-20200327211709-final",
                    # Mirror dataset only has 16320 sweeps total.
-                   'num_examples': 2 ** 14,  # Examples from each dataset (use all if # too large)
+                   'num_examples': 2 ** 20,  # Examples from each dataset (use all if # too large)
                    'num_synthetic_examples': 0,  # Number of synthetic examples to use
                    'offset_scale': 0.0,
                    'noise_scale': 0.4
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Same as 20200701210418 but with equal same amount of data from each set")
+               notes="Test of only good dataset fitting...")
     train(hyperparams)
