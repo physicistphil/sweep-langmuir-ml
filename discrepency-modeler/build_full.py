@@ -201,6 +201,11 @@ class Model:
                          y=absolute)
         return value
 
+    def sqrt(self, tensor, scale=1.0):
+        absolute = scale * tf.math.abs(tensor)
+        value = 2 * tf.math.sqrt(absolute + 1) - 2
+        return value
+
     def build_loss(self, hyperparams, original, theory, discrepancy,
                    original_phys_num, scalefactor):
         with tf.variable_scope("loss"):
@@ -213,22 +218,22 @@ class Model:
                                                 scalefactor[0:3] - self.phys_input) ** 2))
 
             self.loss_phys_penalty = (hyperparams['loss_phys_penalty'] *
-                                      tf.reduce_sum(self.soft_sqrt(self.phys_input, scale=10.0)))
+                                      tf.reduce_sum(self.sqrt(self.phys_input, scale=10.0)))
 
             self.l1_CNN_output = (hyperparams['l1_CNN_output'] *
                                   tf.reduce_sum(tf.math.abs(self.CNN_output)))
 
             self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
-            self.loss_rebuilt = (tf.reduce_sum(self.soft_sqrt(original - self.model_output),
+            self.loss_rebuilt = (tf.reduce_sum(self.sqrt(original - self.model_output),
                                                name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'] / loss_normalization)
             # Penalize errors between the theory and original trace.
-            self.loss_theory = (tf.reduce_sum(self.soft_sqrt(original - theory),
+            self.loss_theory = (tf.reduce_sum(self.sqrt(original - theory),
                                               name="loss_theory") *
                                 hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
-            self.loss_discrepancy = (tf.reduce_sum(self.soft_sqrt(discrepancy, scale=5.0),
+            self.loss_discrepancy = (tf.reduce_sum(self.sqrt(discrepancy, scale=5.0),
                                                    name="loss_discrepancy") *
                                      hyperparams['loss_discrepancy'] / loss_normalization)
 

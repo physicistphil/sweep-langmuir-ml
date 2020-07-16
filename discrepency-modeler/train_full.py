@@ -33,7 +33,7 @@ def train(hyperparams):
 
     # Gather all the data.
     data_train, data_test, data_valid, data_mean, data_ptp = get_data.sample_datasets(hyperparams,
-                                                                                      good_only=True)
+                                                                                      good_only=False)
     num_batches = int(np.ceil(data_train.shape[0] / hyperparams['batch_size']))
     num_test_batches = int(np.ceil(data_test.shape[0] / hyperparams['batch_size']))
     # Maybe delete after? Oh well.
@@ -203,8 +203,8 @@ if __name__ == '__main__':
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
                    'loss_rebuilt': 1.0,  # Controls the influence of the rebuilt curve
                    'loss_theory': 0.0,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.05,  # Controls how small the discrepancy must be
-                   'loss_physics': 0.0,  # Not included in norm. Loss weight of phys params.
+                   'loss_discrepancy': 0.04,  # Controls how small the discrepancy must be
+                   'loss_physics': 1.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
                    'l2_CNN': 0.25,
@@ -227,10 +227,10 @@ if __name__ == '__main__':
                    'surrogate_model': "model-20200327211709-final",
                    # Mirror dataset only has 16320 sweeps total.
                    'num_examples': 2 ** 20,  # Examples from each dataset (use all if # too large)
-                   'num_synthetic_examples': 0,  # Number of synthetic examples to use
-                   'offset_scale': 0.0,
-                   'noise_scale': 0.4
+                   'num_synthetic_examples': 2 ** 18,  # Number of synthetic examples to use
+                   'offset_scale': 0.02,
+                   'noise_scale': 0.02
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Test of only good dataset fitting...")
+               notes="Comparison: with some synthetic sweeps (max pool, sqrt)")
     train(hyperparams)
