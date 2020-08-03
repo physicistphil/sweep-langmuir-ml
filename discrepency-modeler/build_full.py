@@ -54,7 +54,8 @@ class Model:
                              .l2_regularizer(hyperparams['l2_CNN']),
                              )
 
-        pool_layer = partial(tf.layers.max_pooling2d, padding='same')
+        # pool_layer = partial(tf.layers.max_pooling2d, padding='same')
+        pool_layer = partial(tf.layers.average_pooling2d, padding='same')
 
         batch_norm = partial(tf.layers.batch_normalization, training=self.training,
                              momentum=hyperparams['momentum'])
