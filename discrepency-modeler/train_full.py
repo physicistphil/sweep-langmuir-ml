@@ -32,8 +32,7 @@ def train(hyperparams):
     fig_path = "plots/fig-{}/".format(now)
 
     # Gather all the data.
-    data_train, data_test, data_valid, data_mean, data_ptp = get_data.sample_datasets(hyperparams,
-                                                                                      good_only=False)
+    data_train, data_test, data_valid, data_mean, data_ptp = get_data.sample_datasets(hyperparams)
     num_batches = int(np.ceil(data_train.shape[0] / hyperparams['batch_size']))
     num_test_batches = int(np.ceil(data_test.shape[0] / hyperparams['batch_size']))
     # Maybe delete after? Oh well.
@@ -201,36 +200,44 @@ if __name__ == '__main__':
                    'size_diff': 64,
                    'n_output': 256,
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
-                   'loss_rebuilt': 1.0,  # Controls the influence of the rebuilt curve
-                   'loss_theory': 0.0,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.04,  # Controls how small the discrepancy must be
+                   'loss_rebuilt': 2.0,  # Controls the influence of the rebuilt curve
+                   'loss_theory': 0.1,  # Controls how tightly the theory must fit the original
+                   'loss_discrepancy': 0.1,  # Controls how small the discrepancy must be
                    'loss_physics': 1.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
-                   'l2_CNN': 0.25,
-                   'l2_discrepancy': 0.1,
+                   'l2_CNN': 0.0,
+                   'l2_discrepancy': 4.0,
                    'l2_translator': 0.00,
+                   'loss_scale': 10.0,  # Controls the scale of the sqrt loss function
                    # Optimization hyperparamters
                    'learning_rate': 1e-4,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'batch_size': 1024,
-                   # Data parameters
-                   # 'num_batches': 16,  # Number of batches trained in each epoch.
-                   'frac_train': 0.8,
-                   'frac_test': 0.2,
                    # Training info
                    'steps': 100,
                    'seed': 137,
                    'restore': False,
-                   'restore_model': "model-????-final",
+                   'restore_model': "model-???-final",
                    'surrogate_model': "model-20200327211709-final",
-                   # Mirror dataset only has 16320 sweeps total.
+                   # Data parameters
+                   'frac_train': 0.8,
+                   'frac_test': 0.2,
+                   'datasets': ['mirror1',
+                                'mirror2',
+                                'mirror3',
+                                'mirror4',
+                                'mirror5',
+                                'edge1',
+                                'edge2',
+                                'core',
+                                'walt1'],
                    'num_examples': 2 ** 20,  # Examples from each dataset (use all if # too large)
-                   'num_synthetic_examples': 2 ** 18,  # Number of synthetic examples to use
-                   'offset_scale': 0.02,
-                   'noise_scale': 0.02
+                   'num_synthetic_examples': int(1.0 * 2 ** 14),
+                   'offset_scale': 0.05,
+                   'noise_scale': 0.05
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Comparison: with some synthetic sweeps (max pool, sqrt)")
+               notes="Test of new data loading mechanism")
     train(hyperparams)

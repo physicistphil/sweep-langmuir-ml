@@ -212,6 +212,7 @@ class Model:
         with tf.variable_scope("loss"):
             loss_normalization = (hyperparams['loss_rebuilt'] + hyperparams['loss_theory'] +
                                   hyperparams['loss_discrepancy'])
+            loss_scale = hyperparams['loss_scale']
 
             self.loss_physics = (hyperparams['loss_physics'] * 0.5 *
                                  tf.reduce_sum(tf.expand_dims(original_phys_num[:, 0], 1) *
@@ -219,7 +220,7 @@ class Model:
                                                 scalefactor[0:3] - self.phys_input) ** 2))
 
             self.loss_phys_penalty = (hyperparams['loss_phys_penalty'] *
-                                      tf.reduce_sum(self.sqrt(self.phys_input, scale=10.0)))
+                                      tf.reduce_sum(self.sqrt(self.phys_input, scale=loss_scale)))
 
             self.l1_CNN_output = (hyperparams['l1_CNN_output'] *
                                   tf.reduce_sum(tf.math.abs(self.CNN_output)))
@@ -234,7 +235,7 @@ class Model:
                                               name="loss_theory") *
                                 hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
-            self.loss_discrepancy = (tf.reduce_sum(self.sqrt(discrepancy, scale=5.0),
+            self.loss_discrepancy = (tf.reduce_sum(self.sqrt(discrepancy, scale=loss_scale),
                                                    name="loss_discrepancy") *
                                      hyperparams['loss_discrepancy'] / loss_normalization)
 
