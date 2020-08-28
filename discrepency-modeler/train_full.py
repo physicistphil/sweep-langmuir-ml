@@ -51,23 +51,32 @@ def train(hyperparams):
     # Build the network that translates from the CNN output to the Langmuir sweep model
     model.build_linear_translator(hyperparams, model.CNN_output)
 
+    vsweep = (model.X[:, 0:hyperparams['n_inputs']] * model.data_ptp[0:hyperparams['n_inputs']] +
+              model.data_mean[0:hyperparams['n_inputs']])
+
     # Get the surrogate model and connect it to our current model (and providing vsweep).
-    surrogate_X = tf.concat([model.phys_input,
-                             model.X[:, 0:hyperparams['n_inputs']] *
-                             model.data_ptp[0:hyperparams['n_inputs']] +
-                             model.data_mean[0:hyperparams['n_inputs']]], 1)
+    surrogate_X = tf.concat([model.phys_input[:, 0:3],  # only provide ne, Vp, and Te
+                             vsweep], 1)
     surrogate_path = "./saved_models/" + hyperparams['surrogate_model'] + ".ckpt"
     surr_import = tf.train.import_meta_graph("./saved_models/" + hyperparams['surrogate_model'] +
                                              ".ckpt.meta",
                                              input_map={"data/X": surrogate_X},
                                              import_scope="surrogate")
     surr_output = tf.get_default_graph().get_tensor_by_name("surrogate/nn/output:0")
-    scalefactor = tf.get_default_graph().get_tensor_by_name("surrogate/const/scalefactor:0")
+    # Scalefactor from the surrogate model is ne, Vp, Te, and vsweep
+    surr_scalefactor = tf.get_default_graph().get_tensor_by_name("surrogate/const/scalefactor:0")
+
+    # Build the monoenergetic primary electron model
+    monoenergetic_scalefactor = tf.constant([1e-14, 1 / 5.0])
+    scalefactor = tf.concat([surr_scalefactor, monoenergetic_scalefactor], 0)
+    model.build_monoenergetic_electron_model(hyperparams, model.phys_input,
+                                             vsweep, scalefactor)
 
     # So we can get the physical plasma parameters out from the model.
     model.build_plasma_info(scalefactor)
     # Process the curve coming out of the sweep model.
-    model.build_theory_processor(hyperparams, surr_output, stop_gradient=False)
+    model.build_theory_processor(hyperparams, surr_output + model.monoenergetic_output,
+                                 stop_gradient=False)
     # Instead learn the discrepancy from the CNN output (not on the difference).
     model.build_learned_discrepancy_model(hyperparams, model.CNN_output)
 
@@ -192,7 +201,7 @@ def train(hyperparams):
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 256,  # Number of points to define the voltage sweep.
                    'n_flag_inputs': 1,  # Flag to enable / disable physical parameter loss.
-                   'n_phys_inputs': 3,  # n_e, V_p and T_e (for now).
+                   'n_phys_inputs': 5,  # n_e, V_p and T_e, n_p, and E_p
                    # 'size_l1': 50,
                    # 'size_l2': 50,
                    # 'size_trans': 50,
@@ -201,22 +210,22 @@ if __name__ == '__main__':
                    'n_output': 256,
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
                    'loss_rebuilt': 2.0,  # Controls the influence of the rebuilt curve
-                   'loss_theory': 0.1,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.1,  # Controls how small the discrepancy must be
+                   'loss_theory': 0.01,  # Controls how tightly the theory must fit the original
+                   'loss_discrepancy': 0.001,  # Controls how small the discrepancy must be
                    'loss_physics': 1.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
                    'l2_CNN': 0.0,
-                   'l2_discrepancy': 4.0,
+                   'l2_discrepancy': 1.0,
                    'l2_translator': 0.00,
                    'loss_scale': 10.0,  # Controls the scale of the sqrt loss function
                    # Optimization hyperparamters
                    'learning_rate': 1e-4,
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
-                   'batch_size': 1024,
+                   'batch_size': 64,
                    # Training info
-                   'steps': 100,
+                   'steps': 30,
                    'seed': 137,
                    'restore': False,
                    'restore_model': "model-???-final",
@@ -228,16 +237,25 @@ if __name__ == '__main__':
                                 'mirror2',
                                 'mirror3',
                                 'mirror4',
-                                'mirror5',
+                                # 'mirror5',  # set aside for validation
                                 'edge1',
                                 'edge2',
                                 'core',
-                                'walt1'],
+                                'walt1',
+                                'mirror1_avg',
+                                'mirror2_avg',
+                                'mirror3_avg',
+                                'mirror4_avg',
+                                # 'mirror5_avg',  # set aside for validation
+                                'edge1_avg',
+                                'edge2_avg',
+                                'core_avg',
+                                'walt1_avg'],
                    'num_examples': 2 ** 20,  # Examples from each dataset (use all if # too large)
-                   'num_synthetic_examples': int(1.0 * 2 ** 14),
+                   'num_synthetic_examples': int(1.0 * 2 ** 15),
                    'offset_scale': 0.05,
                    'noise_scale': 0.05
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Test of new data loading mechanism")
+               notes="Monenergetic primaries, loss_theory down to 0.01, l2_disc down to 1, 32k synthetic examples")
     train(hyperparams)

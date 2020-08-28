@@ -2,6 +2,7 @@ import tensorflow as tf
 from functools import partial
 import numpy as np
 from matplotlib import pyplot as plt
+import sys
 
 
 class Model:
@@ -9,10 +10,10 @@ class Model:
         with tf.variable_scope("pipeline"):
             self.data_train = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
                                                           hyperparams['n_flag_inputs'] +
-                                                          hyperparams['n_phys_inputs']])
+                                                          hyperparams['n_phys_inputs'] - 2])
             self.data_test = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
                                                          hyperparams['n_flag_inputs'] +
-                                                         hyperparams['n_phys_inputs']])
+                                                         hyperparams['n_phys_inputs'] - 2])
 
             # Keep mean and ptp in the graph so they can be accessed outside of the model.
             self.data_mean = tf.constant(data_mean, dtype=np.float32, name="data_mean")
@@ -54,6 +55,11 @@ class Model:
                              .l2_regularizer(hyperparams['l2_CNN']),
                              )
 
+        dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
+                              .variance_scaling_initializer(seed=hyperparams['seed']),
+                              kernel_regularizer=tf.contrib.layers
+                              .l2_regularizer(hyperparams['l2_CNN']))
+
         # pool_layer = partial(tf.layers.max_pooling2d, padding='same')
         pool_layer = partial(tf.layers.average_pooling2d, padding='same')
 
@@ -65,38 +71,6 @@ class Model:
         filters = hyperparams['filters']
 
         with tf.variable_scope("nn"):
-            # self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
-            #                               kernel_size=(2, 5), strides=(1, 1))
-            # # Just keep middle row (making the height dimension padding 'valid').
-            # # We need 1:2 (instead of just 1) to preserve the dimension.
-            # self.layer_conv0_activation = tf.nn.elu((self.layer_conv0[:, :, :, :]))
-            # self.layer_pool0 = pool_layer(self.layer_conv0_activation, name="layer_pool0",
-            #                               pool_size=(1, 5), strides=(1, 2))
-
-            # self.layer_conv1 = conv_layer(self.layer_pool0, name="layer_conv1", filters=filters,
-            #                               kernel_size=(2, 5), strides=(1, 1))
-            # self.layer_conv1_activation = tf.nn.elu((self.layer_conv1))
-            # self.layer_pool1 = pool_layer(self.layer_conv1_activation, name="layer_pool1",
-            #                               pool_size=(1, 5), strides=(1, 2))
-
-            # self.layer_conv2 = conv_layer(self.layer_pool1, name="layer_conv2", filters=filters,
-            #                               kernel_size=(2, 5), strides=(1, 1))
-            # self.layer_conv2_activation = tf.nn.elu((self.layer_conv2))
-            # self.layer_pool2 = pool_layer(self.layer_conv2_activation, name="layer_pool2",
-            #                               pool_size=(1, 5), strides=(1, 2))
-
-            # self.layer_conv3 = conv_layer(self.layer_pool2, name="layer_conv3", filters=filters,
-            #                               kernel_size=(2, 5), strides=(1, 1))
-            # self.layer_conv3_activation = tf.nn.elu((self.layer_conv3))
-            # self.layer_pool3 = pool_layer(self.layer_conv3_activation, name="layer_pool3",
-            #                               pool_size=(1, 5), strides=(1, 2))
-
-            # self.layer_conv4 = conv_layer(self.layer_pool3, name="layer_conv4", filters=filters,
-            #                               kernel_size=(2, 5), strides=(1, 1))
-            # self.layer_conv4_activation = tf.nn.elu((self.layer_conv4))
-            # self.layer_pool4 = pool_layer(self.layer_conv4_activation, name="layer_pool4",
-            #                               pool_size=(1, 5), strides=(1, 2))
-
             self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
                                           kernel_size=(2, 16), strides=(1, 2))
             # Just keep middle row (making the height dimension padding 'valid').
@@ -114,6 +88,15 @@ class Model:
             # Reshape for input into dense layers or whatever (TensorFlow needs explicit
             #   dimensions for NNs except for the batch size).
             self.conv_flattened = tf.reshape(self.layer_pool1, [-1, 2 * middle_size * filters])
+            # self.layer_nn1 = dense_layer(self.conv_flattened, 32)
+            # self.layer_nn1_activation = tf.nn.elu(self.layer_nn1)
+            # self.layer_nn2 = dense_layer(self.layer_nn1_activation, 32)
+            # self.layer_nn2_activation = tf.nn.elu(self.layer_nn2)
+            # self.layer_nn3 = dense_layer(self.layer_nn2_activation, 32)
+            # self.layer_nn3_activation = tf.nn.elu(self.layer_nn3)
+            # self.layer_nn4 = dense_layer(self.layer_nn3_activation, 32)
+            # self.layer_nn4_activation = tf.nn.elu(self.layer_nn4)
+
             self.CNN_output = tf.identity(self.conv_flattened, name='CNN_output')
 
     def build_linear_translator(self, hyperparams, translator_input):
@@ -136,13 +119,63 @@ class Model:
             # This gets passed off to the surrogate model
             self.phys_input = self.layer_convert_activation
 
+    def build_monoenergetic_electron_model(self, hyperparams, phys_input, vsweep, scalefactor):
+        with tf.variable_scope("phys"):
+            # Physical model branch
+            # self.analytic_input = latent_rep
+
+            # This is analytical simple Langmuir sweep. See generate.py for
+            #   a better explanation.
+            # Te is in eV in this implementation.
+            S = 2e-6  # Area of the probe in m^2
+            me = 9.109e-31  # Mass of electron
+            e = 1.602e-19  # Elementary charge
+            # Physical prefactor for the sweep equation
+            physical_prefactor = e * np.sqrt(2 * e / me) * S
+            # Scale the input parameters so that the network parameters are sane values. These
+            #   constants were discovered empircally to enable easier training.
+            # norm_Vp_factor = scalefactor[1]  # provided by surrogate model -- this is Vp
+            # norm_n_p_factor = scalefactor[4]  # per m^3
+            # norm_Ep_factor = scalefactor[5]  # Energy is in eV
+            # norm_factors = tf.constant([norm_Vp_factor, norm_n_p_factor, norm_Ep_factor])
+
+            mono_phys_input = tf.concat([phys_input[:, 1:2] / scalefactor[1],
+                                         phys_input[:, 3:4] / scalefactor[4],
+                                         phys_input[:, 4:5] / scalefactor[5]], 1)
+
+            self.monoenergetic_input = tf.identity(mono_phys_input, name="input")
+            # You need the explicit end index to preserve that dimension to enable broadcasting.
+            Vp = self.monoenergetic_input[:, 0:1]
+            n_p = tf.math.abs(self.monoenergetic_input[:, 1:2])
+            Ep = tf.math.abs(self.monoenergetic_input[:, 2:3])
+            # Lanmguir sweep calculations start here.
+            Ip = n_p * tf.sqrt(Ep) * physical_prefactor
+
+            # print_op = tf.print("Ip: ", Ip[0], "\nVp: ", Vp[0], "\nEp: ", Ep[0], "\nn_p: ", n_p[0],
+                                # output_stream=sys.stdout)
+            # with tf.control_dependencies([print_op]):
+                # current = Ip * (1 - (Vp - vsweep) / Ep)
+
+            current = Ip * (1 - (Vp - vsweep) / Ep)
+            top_condition = tf.less(Vp, vsweep)
+            # Need the _v2 to have good broadcasting support (requires TF >= 1.14).
+            top_filled = tf.where_v2(top_condition, Ip, current)
+
+            bottom_condition = tf.less_equal(vsweep, Vp - Ep)
+            bottom_filled = tf.where_v2(bottom_condition, tf.constant(0.0), top_filled)
+
+            # This is the output of the model that's given to the user.
+            self.monoenergetic_output = tf.identity(bottom_filled, name="output")
+
     # Needed to put this in its own function because of needing to import the meta graph after
     #   building the translator. Keeps things cleaner this way, hopefully.
     def build_plasma_info(self, scalefactor):
         # Divide by some constants to get physical numbers. The analytical model has these
         #   built in so that needs to be removed if the analytical model is chosen. Only take
-        #   the first three components because the last one is for vsweep (and it's just 1.0).
-        self.plasma_info = tf.identity(self.phys_input / scalefactor[0:3], name="plasma_info")
+        #   the first three components because the 4th one is for vsweep (and it's just 1.0).
+        self.plasma_info = tf.identity(self.phys_input /
+                                       tf.concat([scalefactor[0:3], scalefactor[4:6]], 0),
+                                       name="plasma_info")
 
     def build_variational_translator(self, hyperparams):
         pass
@@ -217,7 +250,7 @@ class Model:
             self.loss_physics = (hyperparams['loss_physics'] * 0.5 *
                                  tf.reduce_sum(tf.expand_dims(original_phys_num[:, 0], 1) *
                                                (original_phys_num[:, 1:4] *
-                                                scalefactor[0:3] - self.phys_input) ** 2))
+                                                scalefactor[0:3] - self.phys_input[:, 0:3]) ** 2))
 
             self.loss_phys_penalty = (hyperparams['loss_phys_penalty'] *
                                       tf.reduce_sum(self.sqrt(self.phys_input, scale=loss_scale)))
@@ -294,7 +327,10 @@ class Model:
                             "ne = {:3.1e} / cm$^3$ \nVp = {:.1f} V \nTe = {:.1f} eV".
                             format(phys_numbers[randidx[x, y], 0] / 1e6,
                                    phys_numbers[randidx[x, y], 1],
-                                   phys_numbers[randidx[x, y], 2] / 1.602e-19),
+                                   phys_numbers[randidx[x, y], 2] / 1.602e-19) +
+                            "\nnp = {:3.1e} / cm$^3$ \nEp = {:.1f} eV".
+                            format(phys_numbers[randidx[x, y], 3] / 1e6,
+                                   phys_numbers[randidx[x, y], 4]),
                             transform=axes[x, y].transAxes)
 
         fig.savefig(save_path + 'full-compare-epoch-{}'.format(epoch))
