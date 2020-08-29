@@ -16,7 +16,7 @@ def sample_datasets(hyperparams):
     n_inputs = hyperparams['n_inputs']
     # Number of examples to sample from each dataset
     num_examples = hyperparams['num_examples']
-    # Number of synthetic examples to sample from
+    # Number of synthetic examples to sample from each dataset
     num_synthetic_examples = hyperparams['num_synthetic_examples']
 
     sweeps = []
@@ -24,7 +24,8 @@ def sample_datasets(hyperparams):
         temp_data = np.load("../../data_training/" + data_file + ".npz")['sweeps']
         np.random.seed(seed + i)
         np.random.shuffle(temp_data)
-        temp_data[0:temp_data.shape[0] if num_examples > temp_data.shape[0] else num_examples]
+        temp_data = temp_data[0:temp_data.shape[0] if num_examples > temp_data.shape[0]
+                              else num_examples]
         sweeps.append(temp_data)
 
     sweeps = np.concatenate(sweeps, axis=0)
@@ -33,23 +34,25 @@ def sample_datasets(hyperparams):
     #   not included for physical sweeps because they have not been analyzed yet.
     sweeps = np.concatenate([sweeps, np.zeros((sweeps.shape[0], 4))], axis=1)
 
-    if hyperparams['num_synthetic_examples'] != 0:
-        synthetic_data_path = "../../data_synthetic/16-18_0-20_0-5-10_-50--20_20-60.npz"
-        synthetic_data = np.load(synthetic_data_path)['sweeps']
-        # Load in synthetic data (which already has the extra flag and physical parameters).
-        np.random.seed(seed + 100)
-        np.random.shuffle(synthetic_data)
-        synthetic_data = synthetic_data[0:num_synthetic_examples]
-        # Apply noise and offset
-        # preprocess.add_offset(data_test, hyperparams, epoch=0)
-        synthetic_data[:, 0:n_inputs * 2] = preprocess.add_real_noise(synthetic_data[:,0:n_inputs * 2],
-                                                                      hyperparams, epoch=0)
-        sweeps = np.concatenate([sweeps, synthetic_data])
-        del synthetic_data
+    if num_synthetic_examples != 0:
+        sweeps_synthetic = []
+        for i, data_file in enumerate(hyperparams['datasets_synthetic']):
+            temp_data = np.load("../../data_synthetic/" + data_file + ".npz")['sweeps']
+            np.random.seed(seed + i + 1000)
+            np.random.shuffle(temp_data)
+            temp_data = temp_data[0:temp_data.shape[0]
+                                  if num_synthetic_examples > temp_data.shape[0]
+                                  else num_synthetic_examples]
+            temp_data[:, 0:n_inputs * 2] = preprocess.add_real_noise(temp_data[:, 0:n_inputs * 2],
+                                                                     hyperparams, epoch=0)
+            sweeps_synthetic.append(temp_data)
 
-    # Shuffle the datasets together.
-    # np.random.seed(seed + 6)
-    # np.random.shuffle(sweeps)
+            print("Num synthetic examples: ", num_synthetic_examples, "\ndata shape: ",
+                  temp_data.shape[0])
+
+        sweeps_synthetic = np.concatenate(sweeps_synthetic, axis=0)
+        sweeps = np.concatenate([sweeps, sweeps_synthetic])
+        del sweeps_synthetic
 
     # Find the voltage sweep and current means and peak-to-peaks so the model is easier to train.
     vsweep_mean = np.full(hyperparams['n_inputs'], np.mean(sweeps[:, 0:n_inputs]))

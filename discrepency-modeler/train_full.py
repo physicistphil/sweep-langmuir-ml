@@ -251,11 +251,12 @@ if __name__ == '__main__':
                                 'edge2_avg',
                                 'core_avg',
                                 'walt1_avg'],
+                   'datasets_synthetic': ['16-18_0-20_0-5-10_-50--20_20-60'],
                    'num_examples': 2 ** 20,  # Examples from each dataset (use all if # too large)
-                   'num_synthetic_examples': int(1.0 * 2 ** 15),
+                   'num_synthetic_examples': int(1.0 * 2 ** 15),  # See comment above
                    'offset_scale': 0.05,
                    'noise_scale': 0.05
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Monenergetic primaries, loss_theory down to 0.01, l2_disc down to 1, 32k synthetic examples")
+               notes="Test of new synthetic data loader")
     train(hyperparams)
