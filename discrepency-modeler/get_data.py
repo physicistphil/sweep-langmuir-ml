@@ -34,6 +34,9 @@ def sample_datasets(hyperparams):
     #   not included for physical sweeps because they have not been analyzed yet.
     sweeps = np.concatenate([sweeps, np.zeros((sweeps.shape[0], 4))], axis=1)
 
+    print("Real examples: {}...".format(sweeps.shape[0]), end=" ")
+    sys.stdout.flush()
+
     if num_synthetic_examples != 0:
         sweeps_synthetic = []
         for i, data_file in enumerate(hyperparams['datasets_synthetic']):
@@ -47,10 +50,11 @@ def sample_datasets(hyperparams):
                                                                      hyperparams, epoch=0)
             sweeps_synthetic.append(temp_data)
 
-            print("Num synthetic examples: ", num_synthetic_examples, "\ndata shape: ",
-                  temp_data.shape[0])
-
         sweeps_synthetic = np.concatenate(sweeps_synthetic, axis=0)
+
+        print("Synthetic examples: {}...".format(sweeps_synthetic.shape[0]), end=" ")
+        sys.stdout.flush()
+
         sweeps = np.concatenate([sweeps, sweeps_synthetic])
         del sweeps_synthetic
 
@@ -72,6 +76,7 @@ def sample_datasets(hyperparams):
     return data_train, data_test, data_valid, data_mean, data_ptp
 
 
+# Old and unused
 def generate_synthetic_dataset(hyperparams):
     print("Generating traces...", end=" ", flush=True)
 

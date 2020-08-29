@@ -251,12 +251,19 @@ if __name__ == '__main__':
                                 'edge2_avg',
                                 'core_avg',
                                 'walt1_avg'],
-                   'datasets_synthetic': ['16-18_0-20_0-5-10_-50--20_20-60'],
+                   'datasets_synthetic': ['16-18_0-20_0-5-10_-50--20_20-60_corrupt-esat'],
                    'num_examples': 2 ** 20,  # Examples from each dataset (use all if # too large)
                    'num_synthetic_examples': int(1.0 * 2 ** 15),  # See comment above
                    'offset_scale': 0.05,
                    'noise_scale': 0.05
                    }
+
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
                notes="Test of new synthetic data loader")
+
+    print("Hyperparameters:")
+    for param in hyperparams.items():
+        print("{}: {}".format(param[0], param[1]))
+    print("\n")
+
     train(hyperparams)
