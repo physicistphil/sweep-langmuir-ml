@@ -20,22 +20,23 @@ def sample_datasets(hyperparams):
     num_synthetic_examples = hyperparams['num_synthetic_examples']
 
     sweeps = []
-    for i, data_file in enumerate(hyperparams['datasets']):
-        temp_data = np.load("../../data_training/" + data_file + ".npz")['sweeps']
-        np.random.seed(seed + i)
-        np.random.shuffle(temp_data)
-        temp_data = temp_data[0:temp_data.shape[0] if num_examples > temp_data.shape[0]
-                              else num_examples]
-        sweeps.append(temp_data)
+    if num_examples != 0:
+        for i, data_file in enumerate(hyperparams['datasets']):
+            temp_data = np.load("../../data_training/" + data_file + ".npz")['sweeps']
+            np.random.seed(seed + i)
+            np.random.shuffle(temp_data)
+            temp_data = temp_data[0:temp_data.shape[0] if num_examples > temp_data.shape[0]
+                                  else num_examples]
+            sweeps.append(temp_data)
 
-    sweeps = np.concatenate(sweeps, axis=0)
-    # Add 4 zeros after each sweep -- first zero is a flag indicating whether the following
-    #   physical parameters (ne, Vp, Te) are included in the loss function calculation. They are
-    #   not included for physical sweeps because they have not been analyzed yet.
-    sweeps = np.concatenate([sweeps, np.zeros((sweeps.shape[0], 4))], axis=1)
+        sweeps = np.concatenate(sweeps, axis=0)
+        # Add 4 zeros after each sweep -- first zero is a flag indicating whether the following
+        #   physical parameters (ne, Vp, Te) are included in the loss function calculation. They are
+        #   not included for physical sweeps because they have not been analyzed yet.
+        sweeps = np.concatenate([sweeps, np.zeros((sweeps.shape[0], 4))], axis=1)
 
-    print("Real examples: {}...".format(sweeps.shape[0]), end=" ")
-    sys.stdout.flush()
+        print("Real examples: {}...".format(sweeps.shape[0]), end=" ")
+        sys.stdout.flush()
 
     if num_synthetic_examples != 0:
         sweeps_synthetic = []
@@ -55,7 +56,10 @@ def sample_datasets(hyperparams):
         print("Synthetic examples: {}...".format(sweeps_synthetic.shape[0]), end=" ")
         sys.stdout.flush()
 
-        sweeps = np.concatenate([sweeps, sweeps_synthetic])
+        if len(sweeps) != 0:
+            sweeps = np.concatenate([sweeps, sweeps_synthetic])
+        else:
+            sweeps = sweeps_synthetic
         del sweeps_synthetic
 
     # Find the voltage sweep and current means and peak-to-peaks so the model is easier to train.
