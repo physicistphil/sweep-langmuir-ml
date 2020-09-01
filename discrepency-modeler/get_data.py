@@ -49,6 +49,8 @@ def sample_datasets(hyperparams):
                                   else num_synthetic_examples]
             temp_data[:, 0:n_inputs * 2] = preprocess.add_real_noise(temp_data[:, 0:n_inputs * 2],
                                                                      hyperparams, epoch=0)
+            temp_data[:, 0:n_inputs * 2] = preprocess.add_offset(temp_data[:, 0:n_inputs * 2],
+                                                                 hyperparams, epoch=0)
             sweeps_synthetic.append(temp_data)
 
         sweeps_synthetic = np.concatenate(sweeps_synthetic, axis=0)
