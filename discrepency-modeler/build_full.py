@@ -47,8 +47,7 @@ class Model:
             # X needs to be 4d for input into convolution layers
             self.X_reshaped = tf.reshape(self.X, [-1, 2, hyperparams['n_inputs'], 1])
 
-        conv_layer = partial(tf.layers.conv2d,
-                             padding='same', activation=None,
+        conv_layer = partial(tf.layers.conv2d, activation=None,
                              kernel_initializer=tf.contrib.layers
                              .variance_scaling_initializer(seed=hyperparams['seed']),
                              kernel_regularizer=tf.contrib.layers
@@ -67,27 +66,61 @@ class Model:
                              momentum=hyperparams['momentum'])
 
         # middle_size = 8
-        middle_size = 16
+        middle_size = 4
         filters = hyperparams['filters']
+        attn_filters = 8
+        feat_filters = 8
+
+        with tf.variable_scope("attn"):
+            self.attn_conv0 = conv_layer(self.X_reshaped, name="attn_conv0", filters=attn_filters,
+                                         kernel_size=(2, 16), strides=(2, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.attn_conv1 = conv_layer(batch_norm(self.attn_conv0), name="attn_conv1", filters=1,
+                                         kernel_size=(1, 1), strides=(1, 1), padding='valid')
+            # This soft attention mask is shape (batch_size, 1, 256, 1)
+            self.attention_mask = tf.sigmoid(batch_norm(self.attn_conv1), name="attention_mask")
+
+        with tf.variable_scope("feat"):
+            self.feat_conv0 = conv_layer(self.X_reshaped, name="feat_conv0", filters=feat_filters,
+                                         kernel_size=(2, 8), strides=(1, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.feat_pool0 = pool_layer(self.feat_conv0, name="feat_pool0",
+                                         pool_size=(1, 8), strides=(1, 1))
+
+            self.feat_conv1 = conv_layer(self.feat_pool0, name="feat_conv1", filters=feat_filters,
+                                         kernel_size=(2, 8), strides=(1, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.feat_pool1 = pool_layer(self.feat_conv1, name="feat_pool1",
+                                         pool_size=(1, 8), strides=(1, 1))
+
+            # print_op = tf.print("attn_mask shape: ", self.attention_mask.shape,
+            #                     "\tfeat_pool shape: ", self.feat_pool1.shape,
+            #                     output_stream=sys.stdout)
+            # with tf.control_dependencies([print_op]):
+            self.attention_glimpse = self.attention_mask * self.feat_pool1
 
         with tf.variable_scope("nn"):
-            self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
-                                          kernel_size=(2, 16), strides=(1, 2))
-            # Just keep middle row (making the height dimension padding 'valid').
-            # We need 1:2 (instead of just 1) to preserve the dimension.
-            self.layer_conv0_activation = tf.nn.elu((self.layer_conv0[:, :, :, :]))
-            self.layer_pool0 = pool_layer(self.layer_conv0_activation, name="layer_pool0",
-                                          pool_size=(1, 16), strides=(1, 2))
+            self.layer_conv0 = conv_layer(self.attention_glimpse, name="layer_conv0",
+                                          filters=filters, kernel_size=(2, 8), strides=(1, 2),
+                                          padding='same', activation=tf.nn.elu)
+            self.layer_pool0 = pool_layer(self.layer_conv0, name="layer_pool0",
+                                          pool_size=(1, 8), strides=(1, 2))
 
-            self.layer_conv1 = conv_layer(self.layer_pool0, name="layer_conv1", filters=filters,
-                                          kernel_size=(2, 16), strides=(1, 2))
-            self.layer_conv1_activation = tf.nn.elu((self.layer_conv1[:, :, :, :]))
-            self.layer_pool1 = pool_layer(self.layer_conv1_activation, name="layer_pool1",
-                                          pool_size=(1, 16), strides=(1, 2))
+            self.layer_conv1 = conv_layer(self.layer_pool0, name="layer_conv1",
+                                          filters=filters * 2, kernel_size=(2, 8), strides=(1, 2),
+                                          padding='same', activation=tf.nn.elu)
+            self.layer_pool1 = pool_layer(self.layer_conv1, name="layer_pool1",
+                                          pool_size=(1, 8), strides=(1, 2))
+
+            self.layer_conv2 = conv_layer(self.layer_pool1, name="layer_conv2",
+                                          filters=filters * 4, kernel_size=(2, 8), strides=(1, 2),
+                                          padding='same', activation=tf.nn.elu)
+            self.layer_pool2 = pool_layer(self.layer_conv2, name="layer_pool2",
+                                          pool_size=(1, 8), strides=(1, 2))
 
             # Reshape for input into dense layers or whatever (TensorFlow needs explicit
             #   dimensions for NNs except for the batch size).
-            self.conv_flattened = tf.reshape(self.layer_pool1, [-1, 2 * middle_size * filters])
+            self.conv_flattened = tf.reshape(self.layer_pool2, [-1, 2 * middle_size * filters * 4])
             # self.layer_nn1 = dense_layer(self.conv_flattened, 32)
             # self.layer_nn1_activation = tf.nn.elu(self.layer_nn1)
             # self.layer_nn2 = dense_layer(self.layer_nn1_activation, 32)
@@ -258,6 +291,7 @@ class Model:
             self.l1_CNN_output = (hyperparams['l1_CNN_output'] *
                                   tf.reduce_sum(tf.math.abs(self.CNN_output)))
 
+            discrepancy = tf.constant(0.0)
             self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
             self.loss_rebuilt = (tf.reduce_sum(self.sqrt(original - self.model_output),
@@ -268,9 +302,10 @@ class Model:
                                               name="loss_theory") *
                                 hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
-            self.loss_discrepancy = (tf.reduce_sum(self.sqrt(discrepancy, scale=loss_scale),
-                                                   name="loss_discrepancy") *
-                                     hyperparams['loss_discrepancy'] / loss_normalization)
+            self.loss_discrepancy = 0.0
+            # self.loss_discrepancy = (tf.reduce_sum(self.sqrt(discrepancy, scale=loss_scale),
+            #                                        name="loss_discrepancy") *
+            #                          hyperparams['loss_discrepancy'] / loss_normalization)
 
             # Divide model loss by batch size to keep loss consistent regardless of input size.
             self.loss_model = ((self.loss_rebuilt + self.loss_theory +
@@ -294,11 +329,12 @@ class Model:
         print("Model {} has been loaded.".format(model_path))
 
     def plot_comparison(self, sess, hyperparams, save_path, epoch):
-        (model_output, theory_output, phys_numbers, data_mean, data_ptp, data_input
+        (model_output, theory_output, phys_numbers, data_mean, data_ptp, data_input, attn_mask
          ) = sess.run([self.model_output, self.processed_theory, self.plasma_info,
                        self.data_mean[hyperparams['n_inputs']:],
                        self.data_ptp[hyperparams['n_inputs']:],
-                       self.X],
+                       self.X,
+                       self.attention_mask],
                       feed_dict={self.training: False})
 
         batch_size = model_output.shape[0]
@@ -318,12 +354,12 @@ class Model:
         for x, y in np.ndindex((3, 4)):
             axes[x, y].plot(data_input[randidx[x, y]], label="Data")
             axes[x, y].plot(theory_output[randidx[x, y]], label="Theory", alpha=0.8)
-            axes[x, y].plot(model_output[randidx[x, y]], label="Rebuilt", alpha=0.4)
+            # axes[x, y].plot(model_output[randidx[x, y]], label="Rebuilt", alpha=0.4)
             axes[x, y].set_title("Index {}".format(randidx[x, y]))
         axes[0, 0].legend()
 
         for x, y in np.ndindex((3, 4)):
-            axes[x, y].text(0.05, 0.7,
+            axes[x, y].text(0.05, 0.4,
                             "ne = {:3.1e} / cm$^3$ \nVp = {:.1f} V \nTe = {:.1f} eV".
                             format(phys_numbers[randidx[x, y], 0] / 1e6,
                                    phys_numbers[randidx[x, y], 1],
@@ -331,7 +367,16 @@ class Model:
                             "\nnp = {:3.1e} / cm$^3$ \nEp = {:.1f} eV".
                             format(phys_numbers[randidx[x, y], 3] / 1e6,
                                    phys_numbers[randidx[x, y], 4]),
-                            transform=axes[x, y].transAxes)
+                            transform=axes[x, y].transAxes,
+                            fontsize=6)
+            mask_color = np.ones((attn_mask[randidx[x, y]].shape[1], 4))
+            mask_color[:, 0] = 0.0
+            mask_color[:, 3] = attn_mask[randidx[x, y]][0, :, 0] / 2.0
+            mask_color = mask_color[np.newaxis, :, :]
+            axes[x, y].imshow(mask_color, aspect='auto',
+                              extent=(axes[x, y].get_xlim()[0], axes[x, y].get_xlim()[1],
+                                      axes[x, y].get_ylim()[0], axes[x, y].get_ylim()[1]))
+            # print(attn_mask[randidx[x, y], 0, 127, 0])
 
         fig.savefig(save_path + 'full-compare-epoch-{}'.format(epoch))
         plt.close(fig)

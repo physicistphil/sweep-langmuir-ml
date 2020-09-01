@@ -138,6 +138,8 @@ def train(hyperparams):
                                             feed_dict={model.training: True})
                 # Keep track of average loss
                 temp_loss_train += loss_train / num_batches
+            if epoch % 10 != 0:  # Stupid workaround for wandb complaining about writing to old rows
+                wandb.log({'loss_train': loss_train}, step=epoch)
             loss_train = temp_loss_train
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
@@ -205,17 +207,17 @@ if __name__ == '__main__':
                    # 'size_l1': 50,
                    # 'size_l2': 50,
                    # 'size_trans': 50,
-                   'filters': 4,
+                   'filters': 8,
                    'size_diff': 64,
                    'n_output': 256,
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
-                   'loss_rebuilt': 2.0,  # Controls the influence of the rebuilt curve
-                   'loss_theory': 0.01,  # Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.001,  # Controls how small the discrepancy must be
+                   'loss_rebuilt': 0.0,  # 2 Controls the influence of the rebuilt curve
+                   'loss_theory': 0.00,  # 0.01 Controls how tightly the theory must fit the original
+                   'loss_discrepancy': 0.001,  # 0.001 Controls how small the discrepancy must be
                    'loss_physics': 1.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
-                   'l2_CNN': 0.0,
+                   'l2_CNN': 0.001,
                    'l2_discrepancy': 1.0,
                    'l2_translator': 0.00,
                    'loss_scale': 10.0,  # Controls the scale of the sqrt loss function
@@ -225,7 +227,7 @@ if __name__ == '__main__':
                    'batch_momentum': 0.99,
                    'batch_size': 64,
                    # Training info
-                   'steps': 30,
+                   'steps': 100,
                    'seed': 137,
                    'restore': False,
                    'restore_model': "model-???-final",
@@ -251,15 +253,16 @@ if __name__ == '__main__':
                                 'edge2_avg',
                                 'core_avg',
                                 'walt1_avg'],
-                   'datasets_synthetic': ['16-18_0-20_0-5-10_-50--20_20-60_corrupt-esat'],
-                   'num_examples': 2 ** 20,  # Examples from each dataset (use all if # too large)
-                   'num_synthetic_examples': int(1.0 * 2 ** 15),  # See comment above
-                   'offset_scale': 0.05,
+                   'datasets_synthetic': [#'16-18_0-20_0-5-10_-50--20_20-60_corrupt-esat',
+                                          '15-18_-30-30_0-1-10_-100--20_20-100_corrupt-esat'],
+                   'num_examples': 0 * 2 ** 20,  # Examples from each dataset (use all if # too large)
+                   'num_synthetic_examples': int(1.0 * 2 ** 18),  # See comment above
+                   'offset_scale': 0.07,
                    'noise_scale': 0.05
                    }
 
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Test of new synthetic data loader")
+               notes="Attention mechanism -- more synthetic, more filters")
 
     print("Hyperparameters:")
     for param in hyperparams.items():
