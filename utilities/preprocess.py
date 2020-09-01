@@ -105,7 +105,7 @@ def shuffle_split_data(data, hyperparams):
 def add_offset(X, hyperparams, epoch=0):
     offset_scale = hyperparams['offset_scale'] * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
     # Add the current epoch so we get some variety over the entire training run.
-    np.random.seed(hyperparams['seed'] + epoch)
+    np.random.seed(hyperparams['seed'] + epoch + 54321)
     offsets = np.random.uniform(-offset_scale, offset_scale)
     X[:, hyperparams['n_inputs']:] += offsets[:, np.newaxis]
 
@@ -151,7 +151,7 @@ def add_real_noise(X, hyperparams, epoch=0):
     noise = np.real(np.fft.ifft(fft_abs *
                                 phase(random_angle))) / 0.1
     # Scale noise by a random number so there are some sweeps with noise and some without much.
-    np.random.seed(seed)
+    np.random.seed(seed + 12345)
     random_scaling = np.random.uniform(0.0, 1.0, size=(X.shape[0], 1))
     X[:, hyperparams['n_inputs']:] += noise * noise_scale[:, np.newaxis] * random_scaling
 
