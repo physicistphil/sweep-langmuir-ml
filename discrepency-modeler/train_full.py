@@ -138,7 +138,8 @@ def train(hyperparams):
                                             feed_dict={model.training: True})
                 # Keep track of average loss
                 temp_loss_train += loss_train / num_batches
-            if epoch % 10 != 0:  # Stupid workaround for wandb complaining about writing to old rows
+            # Stupid workaround for wandb complaining about writing to older history rows
+            if epoch % 10 != 0 and epoch != hyperparams['steps'] - 1:
                 wandb.log({'loss_train': loss_train}, step=epoch)
             loss_train = temp_loss_train
 
@@ -211,9 +212,9 @@ if __name__ == '__main__':
                    'size_diff': 64,
                    'n_output': 256,
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
-                   'loss_rebuilt': 0.0,  # 2 Controls the influence of the rebuilt curve
+                   'loss_rebuilt': 0.1,  # 2 Controls the influence of the rebuilt curve
                    'loss_theory': 0.00,  # 0.01 Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.001,  # 0.001 Controls how small the discrepancy must be
+                   'loss_discrepancy': 0.0,  # 0.001 Controls how small the discrepancy must be
                    'loss_physics': 1.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
@@ -262,7 +263,7 @@ if __name__ == '__main__':
                    }
 
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Attention mechanism -- more synthetic, more filters")
+               notes="Normalized attention with loss rebuilt down to 0.1 (more data)")
 
     print("Hyperparameters:")
     for param in hyperparams.items():
