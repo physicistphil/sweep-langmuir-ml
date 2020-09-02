@@ -78,7 +78,11 @@ class Model:
             self.attn_conv1 = conv_layer(batch_norm(self.attn_conv0), name="attn_conv1", filters=1,
                                          kernel_size=(1, 1), strides=(1, 1), padding='valid')
             # This soft attention mask is shape (batch_size, 1, 256, 1)
-            self.attention_mask = tf.sigmoid(batch_norm(self.attn_conv1), name="attention_mask")
+            self.attention_mask = tf.sigmoid(batch_norm(self.attn_conv1))
+            self.attention_mask = tf.identity(self.attention_mask /
+                                              tf.math.reduce_max(self.attention_mask, axis=2,
+                                                                 keep_dims=True),
+                                              name="attention_mask")
 
         with tf.variable_scope("feat"):
             self.feat_conv0 = conv_layer(self.X_reshaped, name="feat_conv0", filters=feat_filters,
@@ -94,7 +98,8 @@ class Model:
                                          pool_size=(1, 8), strides=(1, 1))
 
             # print_op = tf.print("attn_mask shape: ", self.attention_mask.shape,
-            #                     "\tfeat_pool shape: ", self.feat_pool1.shape,
+            #                     "\nfeat_pool shape: ", self.feat_pool1.shape,
+            #                     "\nattn_conv shape: ", self.attn_conv1.shape,
             #                     output_stream=sys.stdout)
             # with tf.control_dependencies([print_op]):
             self.attention_glimpse = self.attention_mask * self.feat_pool1
@@ -294,7 +299,8 @@ class Model:
             discrepancy = tf.constant(0.0)
             self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
-            self.loss_rebuilt = (tf.reduce_sum(self.sqrt(original - self.model_output),
+            self.loss_rebuilt = (tf.reduce_sum(self.sqrt(original - self.model_output) *
+                                               self.attention_mask[:, 0, :, 0],
                                                name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'] / loss_normalization)
             # Penalize errors between the theory and original trace.
@@ -374,7 +380,7 @@ class Model:
             mask_color[:, 3] = attn_mask[randidx[x, y]][0, :, 0] / 2.0
             mask_color = mask_color[np.newaxis, :, :]
             axes[x, y].imshow(mask_color, aspect='auto',
-                              extent=(axes[x, y].get_xlim()[0], axes[x, y].get_xlim()[1],
+                              extent=(0.0, 256.0,
                                       axes[x, y].get_ylim()[0], axes[x, y].get_ylim()[1]))
             # print(attn_mask[randidx[x, y], 0, 127, 0])
 
