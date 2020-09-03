@@ -73,12 +73,30 @@ class Model:
 
         with tf.variable_scope("attn"):
             self.attn_conv0 = conv_layer(self.X_reshaped, name="attn_conv0", filters=attn_filters,
-                                         kernel_size=(2, 16), strides=(2, 1), padding='same',
+                                         kernel_size=(2, 5), strides=(2, 1), padding='same',
                                          activation=tf.nn.elu)
-            self.attn_conv1 = conv_layer(batch_norm(self.attn_conv0), name="attn_conv1", filters=1,
-                                         kernel_size=(1, 1), strides=(1, 1), padding='valid')
+            self.attn_conv1 = conv_layer(self.attn_conv0, name="attn_conv1", filters=attn_filters,
+                                         kernel_size=(1, 5), strides=(1, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.attn_conv2 = conv_layer(self.attn_conv1, name="attn_conv2", filters=attn_filters,
+                                         kernel_size=(1, 5), strides=(1, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.attn_conv3 = conv_layer(self.attn_conv2, name="attn_conv3", filters=attn_filters,
+                                         kernel_size=(1, 5), strides=(1, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.attn_conv4 = conv_layer(self.attn_conv3, name="attn_conv4", filters=attn_filters,
+                                         kernel_size=(1, 5), strides=(1, 1), padding='same',
+                                         activation=tf.nn.elu)
+            # Include vsweep here to give location information
+            self.attn_conv5 = conv_layer(tf.concat([(self.X_reshaped[:, 0:1]),
+                                                    self.attn_conv4], 3),
+                                         name="attn_conv5", filters=attn_filters,
+                                         kernel_size=(2, 5), strides=(2, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.attn_flat = conv_layer(batch_norm(self.attn_conv5), name="attn_flat", filters=1,
+                                        kernel_size=(1, 1), strides=(1, 1), padding='valid')
             # This soft attention mask is shape (batch_size, 1, 256, 1)
-            self.attention_mask = tf.sigmoid(batch_norm(self.attn_conv1))
+            self.attention_mask = tf.sigmoid(batch_norm(self.attn_flat))
             self.attention_mask = tf.identity(self.attention_mask /
                                               tf.math.reduce_max(self.attention_mask, axis=2,
                                                                  keep_dims=True),
@@ -299,7 +317,7 @@ class Model:
             discrepancy = tf.constant(0.0)
             self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
-            self.loss_rebuilt = (tf.reduce_sum(self.sqrt(original - self.model_output) *
+            self.loss_rebuilt = (tf.reduce_sum((original - self.model_output) ** 2 *
                                                self.attention_mask[:, 0, :, 0],
                                                name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'] / loss_normalization)
@@ -377,7 +395,8 @@ class Model:
                             fontsize=6)
             mask_color = np.ones((attn_mask[randidx[x, y]].shape[1], 4))
             mask_color[:, 0] = 0.0
-            mask_color[:, 3] = attn_mask[randidx[x, y]][0, :, 0] / 2.0
+            mask_color[:, 2] = 0.0
+            mask_color[:, 3] = attn_mask[randidx[x, y]][0, :, 0]
             mask_color = mask_color[np.newaxis, :, :]
             axes[x, y].imshow(mask_color, aspect='auto',
                               extent=(0.0, 256.0,
