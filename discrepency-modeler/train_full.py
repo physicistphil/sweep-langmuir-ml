@@ -78,7 +78,7 @@ def train(hyperparams):
     model.build_theory_processor(hyperparams, surr_output + model.monoenergetic_output,
                                  stop_gradient=False)
     # Instead learn the discrepancy from the CNN output (not on the difference).
-    model.build_learned_discrepancy_model(hyperparams, model.CNN_output)
+    # model.build_learned_discrepancy_model(hyperparams, model.CNN_output)
 
     # Remove surrogate model from the list of trainable variables (to pass in to the optimizer)
     training_vars = tf.trainable_variables()
@@ -88,7 +88,9 @@ def train(hyperparams):
     model.vars = training_vars
     # Calculate all the losses (full curve, theory fit, discrepancy size, regularization, physics)
     model.build_loss(hyperparams, model.X[:, hyperparams['n_inputs']:],
-                     model.processed_theory, model.discrepancy_output, model.X_phys, scalefactor)
+                     model.processed_theory,
+                     0.0,  # model.discrepancy_output,
+                     model.X_phys, scalefactor)
 
     # Log values of gradients and variables for tensorboard.
     for grad, var in model.grads:
@@ -213,7 +215,7 @@ if __name__ == '__main__':
                    'n_output': 256,
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
                    'loss_rebuilt': 0.2,  # 2 Controls the influence of the rebuilt curve
-                   'loss_theory': 0.00,  # 0.01 Controls how tightly the theory must fit the original
+                   # 'loss_theory': 0.00,  # 0.01 Controls how tightly the theory must fit the original
                    'loss_discrepancy': 0.0,  # 0.001 Controls how small the discrepancy must be
                    'loss_physics': 2.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params

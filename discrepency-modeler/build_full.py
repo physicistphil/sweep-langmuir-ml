@@ -248,39 +248,39 @@ class Model:
         else:
             self.processed_theory = tf.identity(scaled_theory, name="processed_theory")
 
-    def build_discrepancy_model(self, hyperparams, vsweep, difference):
-        dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
-                              .variance_scaling_initializer(seed=hyperparams['seed']),
-                              kernel_regularizer=tf.contrib.layers
-                              .l2_regularizer(hyperparams['l2_discrepancy']))
+    # def build_discrepancy_model(self, hyperparams, vsweep, difference):
+    #     dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
+    #                           .variance_scaling_initializer(seed=hyperparams['seed']),
+    #                           kernel_regularizer=tf.contrib.layers
+    #                           .l2_regularizer(hyperparams['l2_discrepancy']))
 
-        # Start with simple dense NN for now. Should probs put batch norm in here someplace.
-        with tf.variable_scope("discrepancy"):
-            self.diff = tf.concat([vsweep, difference], 1)
-            self.diff_layer0 = dense_layer(self.diff, hyperparams['size_diff'],
-                                           name="diff_layer0")
-            self.diff_layer0_activation = (self.diff_layer0)
-            self.diff_layer1 = dense_layer(self.diff_layer0, hyperparams['n_output'],
-                                           name="diff_layer1")
-            self.diff_layer1_activation = (self.diff_layer1)
-            self.discrepancy_output = tf.identity(self.diff_layer1_activation,
-                                                  name="discrepancy_output")
+    #     # Start with simple dense NN for now. Should probs put batch norm in here someplace.
+    #     with tf.variable_scope("discrepancy"):
+    #         self.diff = tf.concat([vsweep, difference], 1)
+    #         self.diff_layer0 = dense_layer(self.diff, hyperparams['size_diff'],
+    #                                        name="diff_layer0")
+    #         self.diff_layer0_activation = (self.diff_layer0)
+    #         self.diff_layer1 = dense_layer(self.diff_layer0, hyperparams['n_output'],
+    #                                        name="diff_layer1")
+    #         self.diff_layer1_activation = (self.diff_layer1)
+    #         self.discrepancy_output = tf.identity(self.diff_layer1_activation,
+    #                                               name="discrepancy_output")
 
-    def build_learned_discrepancy_model(self, hyperparams, latent_rep):
-        dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
-                              .variance_scaling_initializer(seed=hyperparams['seed']),
-                              kernel_regularizer=tf.contrib.layers
-                              .l2_regularizer(hyperparams['l2_discrepancy']))
+    # def build_learned_discrepancy_model(self, hyperparams, latent_rep):
+    #     dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
+    #                           .variance_scaling_initializer(seed=hyperparams['seed']),
+    #                           kernel_regularizer=tf.contrib.layers
+    #                           .l2_regularizer(hyperparams['l2_discrepancy']))
 
-        with tf.variable_scope("discrepancy"):
-            self.diff_layer0 = dense_layer(latent_rep, hyperparams['size_diff'],
-                                           name="diff_layer0")
-            self.diff_layer0_activation = (self.diff_layer0)
-            self.diff_layer1 = dense_layer(self.diff_layer0, hyperparams['n_output'],
-                                           name="diff_layer1")
-            self.diff_layer1_activation = (self.diff_layer1)
-            self.discrepancy_output = tf.identity(self.diff_layer1_activation,
-                                                  name="discrepancy_output")
+    #     with tf.variable_scope("discrepancy"):
+    #         self.diff_layer0 = dense_layer(latent_rep, hyperparams['size_diff'],
+    #                                        name="diff_layer0")
+    #         self.diff_layer0_activation = (self.diff_layer0)
+    #         self.diff_layer1 = dense_layer(self.diff_layer0, hyperparams['n_output'],
+    #                                        name="diff_layer1")
+    #         self.diff_layer1_activation = (self.diff_layer1)
+    #         self.discrepancy_output = tf.identity(self.diff_layer1_activation,
+    #                                               name="discrepancy_output")
 
     # Scale controls how wide the function is. The larger the scale, the larger the x-axis squish.
     def soft_sqrt(self, tensor, scale=1.0):
@@ -314,7 +314,6 @@ class Model:
             self.l1_CNN_output = (hyperparams['l1_CNN_output'] *
                                   tf.reduce_sum(tf.math.abs(self.CNN_output)))
 
-            discrepancy = tf.constant(0.0)
             self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
             self.loss_rebuilt = (tf.reduce_sum((original - self.model_output) ** 2 *
@@ -322,9 +321,9 @@ class Model:
                                                name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'] / loss_normalization)
             # Penalize errors between the theory and original trace.
-            self.loss_theory = (tf.reduce_sum(self.sqrt(original - theory),
-                                              name="loss_theory") *
-                                hyperparams['loss_theory'] / loss_normalization)
+            self.loss_theory = 0.0  # (tf.reduce_sum(self.sqrt(original - theory),
+                               #               name="loss_theory") *
+                               # hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
             self.loss_discrepancy = 0.0
             # self.loss_discrepancy = (tf.reduce_sum(self.sqrt(discrepancy, scale=loss_scale),
