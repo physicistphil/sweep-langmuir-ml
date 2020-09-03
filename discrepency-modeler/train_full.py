@@ -67,15 +67,17 @@ def train(hyperparams):
     surr_scalefactor = tf.get_default_graph().get_tensor_by_name("surrogate/const/scalefactor:0")
 
     # Build the monoenergetic primary electron model
-    monoenergetic_scalefactor = tf.constant([1e-14, 1 / 5.0])
-    scalefactor = tf.concat([surr_scalefactor, monoenergetic_scalefactor], 0)
-    model.build_monoenergetic_electron_model(hyperparams, model.phys_input,
-                                             vsweep, scalefactor)
+    # monoenergetic_scalefactor = tf.constant([1e-14, 1 / 5.0])
+    # scalefactor = tf.concat([surr_scalefactor, monoenergetic_scalefactor], 0)
+    scalefactor = surr_scalefactor
+    # model.build_monoenergetic_electron_model(hyperparams, model.phys_input,
+    #                                          vsweep, scalefactor)
 
     # So we can get the physical plasma parameters out from the model.
+    # model.build_plasma_info(scalefactor)
     model.build_plasma_info(scalefactor)
     # Process the curve coming out of the sweep model.
-    model.build_theory_processor(hyperparams, surr_output + model.monoenergetic_output,
+    model.build_theory_processor(hyperparams, surr_output,  # + model.monoenergetic_output,
                                  stop_gradient=False)
     # Instead learn the discrepancy from the CNN output (not on the difference).
     # model.build_learned_discrepancy_model(hyperparams, model.CNN_output)
@@ -206,7 +208,7 @@ def train(hyperparams):
 if __name__ == '__main__':
     hyperparams = {'n_inputs': 256,  # Number of points to define the voltage sweep.
                    'n_flag_inputs': 1,  # Flag to enable / disable physical parameter loss.
-                   'n_phys_inputs': 5,  # n_e, V_p and T_e, n_p, and E_p
+                   'n_phys_inputs': 3,  # n_e, V_p and T_e, n_p, and E_p
                    # 'size_l1': 50,
                    # 'size_l2': 50,
                    # 'size_trans': 50,
@@ -216,7 +218,7 @@ if __name__ == '__main__':
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
                    'loss_rebuilt': 0.2,  # 2 Controls the influence of the rebuilt curve
                    # 'loss_theory': 0.00,  # 0.01 Controls how tightly the theory must fit the original
-                   'loss_discrepancy': 0.0,  # 0.001 Controls how small the discrepancy must be
+                   # 'loss_discrepancy': 0.0,  # 0.001 Controls how small the discrepancy must be
                    'loss_physics': 2.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN

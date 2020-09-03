@@ -10,10 +10,12 @@ class Model:
         with tf.variable_scope("pipeline"):
             self.data_train = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
                                                           hyperparams['n_flag_inputs'] +
-                                                          hyperparams['n_phys_inputs'] - 2])
+                                                          # hyperparams['n_phys_inputs'] - 2])
+                                                          hyperparams['n_phys_inputs']])
             self.data_test = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
                                                          hyperparams['n_flag_inputs'] +
-                                                         hyperparams['n_phys_inputs'] - 2])
+                                                         # hyperparams['n_phys_inputs'] - 2])
+                                                         hyperparams['n_phys_inputs']])
 
             # Keep mean and ptp in the graph so they can be accessed outside of the model.
             self.data_mean = tf.constant(data_mean, dtype=np.float32, name="data_mean")
@@ -229,8 +231,8 @@ class Model:
         # Divide by some constants to get physical numbers. The analytical model has these
         #   built in so that needs to be removed if the analytical model is chosen. Only take
         #   the first three components because the 4th one is for vsweep (and it's just 1.0).
-        self.plasma_info = tf.identity(self.phys_input /
-                                       tf.concat([scalefactor[0:3], scalefactor[4:6]], 0),
+        self.plasma_info = tf.identity(self.phys_input / scalefactor[0:3],
+                                       # tf.concat([scalefactor[0:3], scalefactor[4:6]], 0),
                                        name="plasma_info")
 
     def build_variational_translator(self, hyperparams):
@@ -299,8 +301,8 @@ class Model:
     def build_loss(self, hyperparams, original, theory, discrepancy,
                    original_phys_num, scalefactor):
         with tf.variable_scope("loss"):
-            loss_normalization = (hyperparams['loss_rebuilt'] + hyperparams['loss_theory'] +
-                                  hyperparams['loss_discrepancy'])
+            loss_normalization = (hyperparams['loss_rebuilt'])  # + hyperparams['loss_theory'] +
+                                  # hyperparams['loss_discrepancy'])
             loss_scale = hyperparams['loss_scale']
 
             self.loss_physics = (hyperparams['loss_physics'] * 0.5 *
@@ -386,10 +388,10 @@ class Model:
                             "ne = {:3.1e} / cm$^3$ \nVp = {:.1f} V \nTe = {:.1f} eV".
                             format(phys_numbers[randidx[x, y], 0] / 1e6,
                                    phys_numbers[randidx[x, y], 1],
-                                   phys_numbers[randidx[x, y], 2] / 1.602e-19) +
-                            "\nnp = {:3.1e} / cm$^3$ \nEp = {:.1f} eV".
-                            format(phys_numbers[randidx[x, y], 3] / 1e6,
-                                   phys_numbers[randidx[x, y], 4]),
+                                   phys_numbers[randidx[x, y], 2] / 1.602e-19),  # +
+                            # "\nnp = {:3.1e} / cm$^3$ \nEp = {:.1f} eV".
+                            # format(phys_numbers[randidx[x, y], 3] / 1e6,
+                            #        phys_numbers[randidx[x, y], 4]),
                             transform=axes[x, y].transAxes,
                             fontsize=6)
             mask_color = np.ones((attn_mask[randidx[x, y]].shape[1], 4))
