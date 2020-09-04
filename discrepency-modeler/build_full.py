@@ -83,15 +83,15 @@ class Model:
             self.attn_conv2 = conv_layer(self.attn_conv1, name="attn_conv2", filters=attn_filters,
                                          kernel_size=(1, 5), strides=(1, 1), padding='same',
                                          activation=tf.nn.elu)
-            self.attn_conv3 = conv_layer(self.attn_conv2, name="attn_conv3", filters=attn_filters,
+            self.attn_conv3 = conv_layer(tf.concat([self.attn_conv0, self.attn_conv2], 3),
+                                         name="attn_conv3", filters=attn_filters,
                                          kernel_size=(1, 5), strides=(1, 1), padding='same',
                                          activation=tf.nn.elu)
             self.attn_conv4 = conv_layer(self.attn_conv3, name="attn_conv4", filters=attn_filters,
                                          kernel_size=(1, 5), strides=(1, 1), padding='same',
                                          activation=tf.nn.elu)
             # Include vsweep here to give location information
-            self.attn_conv5 = conv_layer(tf.concat([(self.X_reshaped[:, 0:1]),
-                                                    self.attn_conv4], 3),
+            self.attn_conv5 = conv_layer(tf.concat([self.attn_conv0, self.attn_conv4], 3),
                                          name="attn_conv5", filters=attn_filters,
                                          kernel_size=(2, 5), strides=(2, 1), padding='same',
                                          activation=tf.nn.elu)
@@ -117,12 +117,25 @@ class Model:
             self.feat_pool1 = pool_layer(self.feat_conv1, name="feat_pool1",
                                          pool_size=(1, 8), strides=(1, 1))
 
+            self.feat_conv2 = conv_layer(self.feat_pool1, name="feat_conv2", filters=feat_filters,
+                                         kernel_size=(2, 8), strides=(1, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.feat_pool2 = pool_layer(self.feat_conv2, name="feat_pool2",
+                                         pool_size=(1, 8), strides=(1, 1))
+
+            self.feat_conv3 = conv_layer(tf.concat([self.feat_pool0, self.feat_pool2], 3),
+                                         name="feat_conv3", filters=feat_filters,
+                                         kernel_size=(2, 8), strides=(1, 1), padding='same',
+                                         activation=tf.nn.elu)
+            self.feat_pool3 = pool_layer(self.feat_conv3, name="feat_pool3",
+                                         pool_size=(1, 8), strides=(1, 1))
+
             # print_op = tf.print("attn_mask shape: ", self.attention_mask.shape,
             #                     "\nfeat_pool shape: ", self.feat_pool1.shape,
             #                     "\nattn_conv shape: ", self.attn_conv1.shape,
             #                     output_stream=sys.stdout)
             # with tf.control_dependencies([print_op]):
-            self.attention_glimpse = self.attention_mask * self.feat_pool1
+            self.attention_glimpse = self.attention_mask * self.feat_pool3
 
         with tf.variable_scope("nn"):
             self.layer_conv0 = conv_layer(self.attention_glimpse, name="layer_conv0",
@@ -146,16 +159,14 @@ class Model:
             # Reshape for input into dense layers or whatever (TensorFlow needs explicit
             #   dimensions for NNs except for the batch size).
             self.conv_flattened = tf.reshape(self.layer_pool2, [-1, 2 * middle_size * filters * 4])
-            # self.layer_nn1 = dense_layer(self.conv_flattened, 32)
-            # self.layer_nn1_activation = tf.nn.elu(self.layer_nn1)
-            # self.layer_nn2 = dense_layer(self.layer_nn1_activation, 32)
-            # self.layer_nn2_activation = tf.nn.elu(self.layer_nn2)
+            self.layer_nn1 = dense_layer(self.conv_flattened, 32, activation=tf.nn.elu)
+            self.layer_nn2 = dense_layer(self.layer_nn1, 32, activation=tf.nn.elu)
             # self.layer_nn3 = dense_layer(self.layer_nn2_activation, 32)
             # self.layer_nn3_activation = tf.nn.elu(self.layer_nn3)
             # self.layer_nn4 = dense_layer(self.layer_nn3_activation, 32)
             # self.layer_nn4_activation = tf.nn.elu(self.layer_nn4)
 
-            self.CNN_output = tf.identity(self.conv_flattened, name='CNN_output')
+            self.CNN_output = tf.identity(self.layer_nn2, name='CNN_output')
 
     def build_linear_translator(self, hyperparams, translator_input):
         dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
