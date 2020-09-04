@@ -2,7 +2,7 @@ import tensorflow as tf
 from functools import partial
 import numpy as np
 from matplotlib import pyplot as plt
-import sys
+import scipy.stats as stats
 
 
 class Model:
@@ -301,7 +301,19 @@ class Model:
     def build_loss(self, hyperparams, original, theory, discrepancy,
                    original_phys_num, scalefactor):
         with tf.variable_scope("loss"):
-            loss_normalization = (hyperparams['loss_rebuilt'])  # + hyperparams['loss_theory'] +
+            # Attention loss (soft constraint to be close to each other)
+            correlation = tf.constant(np.array([stats.norm(i, 100).pdf(np.arange(0, 256, 1))
+                                                for i in range(256)]) / stats.norm(0, 1).pdf(0),
+                                      dtype=tf.float32)
+            attention_mask = self.attention_mask[:, :, :, 0]
+            # self.attention_loss = tf.reduce_sum((tf.matmul(attention_mask,
+            #                                                tf.matmul((1.0 - correlation),
+            #                                                          tf.transpose(attention_mask,
+            #                                                                       [0, 2, 1]))) /
+            #                                      tf.reduce_sum(attention_mask, axis=2) ** 2)) * 0.0001
+            self.attention_loss = 0.0  # tf.reduce_sum(attention_mask) / 256.0
+
+            # loss_normalization = (hyperparams['loss_rebuilt'])  # + hyperparams['loss_theory'] +
                                   # hyperparams['loss_discrepancy'])
             loss_scale = hyperparams['loss_scale']
 
@@ -321,21 +333,24 @@ class Model:
             self.loss_rebuilt = (tf.reduce_sum((original - self.model_output) ** 2 *
                                                self.attention_mask[:, 0, :, 0],
                                                name="loss_rebuilt") *
-                                 hyperparams['loss_rebuilt'] / loss_normalization)
+                                 hyperparams['loss_rebuilt']) # / loss_normalization)
             # Penalize errors between the theory and original trace.
-            self.loss_theory = 0.0  # (tf.reduce_sum(self.sqrt(original - theory),
+            # self.loss_theory = (tf.reduce_sum(self.sqrt(original - theory),
                                #               name="loss_theory") *
                                # hyperparams['loss_theory'] / loss_normalization)
             # Penalize the size of the discrepancy output.
-            self.loss_discrepancy = 0.0
             # self.loss_discrepancy = (tf.reduce_sum(self.sqrt(discrepancy, scale=loss_scale),
             #                                        name="loss_discrepancy") *
             #                          hyperparams['loss_discrepancy'] / loss_normalization)
 
             # Divide model loss by batch size to keep loss consistent regardless of input size.
-            self.loss_model = ((self.loss_rebuilt + self.loss_theory +
-                                self.loss_discrepancy + self.loss_physics +
-                                self.loss_phys_penalty + self.l1_CNN_output) /
+            self.loss_model = ((self.loss_rebuilt +
+                                # self.loss_theory +
+                                # self.loss_discrepancy +
+                                self.attention_loss +
+                                self.loss_physics +
+                                self.loss_phys_penalty +
+                                self.l1_CNN_output) /
                                tf.cast(tf.shape(self.model_output)[0], tf.float32))
             self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_model] + self.loss_reg, name="loss_total")
