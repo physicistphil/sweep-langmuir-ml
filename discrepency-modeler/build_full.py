@@ -325,16 +325,16 @@ class Model:
                    original_phys_num, scalefactor):
         with tf.variable_scope("loss"):
             # Attention loss (soft constraint to be close to each other)
-            correlation = tf.constant(np.array([stats.norm(i, 100).pdf(np.arange(0, 256, 1))
-                                                for i in range(256)]) / stats.norm(0, 1).pdf(0),
-                                      dtype=tf.float32)
-            attention_mask = self.attention_mask[:, :, :, 0]
+            # correlation = tf.constant(np.array([stats.norm(i, 100).pdf(np.arange(0, 256, 1))
+            #                                     for i in range(256)]) / stats.norm(0, 1).pdf(0),
+            #                           dtype=tf.float32)
+            # attention_mask = self.attention_mask[:, :, :, 0]
             # self.attention_loss = tf.reduce_sum((tf.matmul(attention_mask,
             #                                                tf.matmul((1.0 - correlation),
             #                                                          tf.transpose(attention_mask,
             #                                                                       [0, 2, 1]))) /
             #                                      tf.reduce_sum(attention_mask, axis=2) ** 2)) * 0.0001
-            self.attention_loss = 0.0  # tf.reduce_sum(attention_mask) / 256.0
+            # self.attention_loss = tf.reduce_sum(attention_mask) / 256.0
 
             # loss_normalization = (hyperparams['loss_rebuilt'])  # + hyperparams['loss_theory'] +
                                   # hyperparams['loss_discrepancy'])
@@ -370,7 +370,7 @@ class Model:
             self.loss_model = ((self.loss_rebuilt +
                                 # self.loss_theory +
                                 # self.loss_discrepancy +
-                                self.attention_loss +
+                                # self.attention_loss +
                                 self.loss_physics +
                                 self.loss_phys_penalty +
                                 self.l1_CNN_output) /
@@ -379,9 +379,13 @@ class Model:
             self.loss_total = tf.add_n([self.loss_model] + self.loss_reg, name="loss_total")
 
         with tf.variable_scope("train"):
-            self.opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
-                                                            hyperparams['momentum'],
-                                                            use_nesterov=True)
+            # self.opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
+            #                                                 hyperparams['momentum'],
+            #                                                 use_nesterov=True)
+            self.opt = tf.compat.v1.train.AdamOptimizer(hyperparams['learning_rate'],
+                                                        hyperparams['beta1'],
+                                                        hyperparams['beta2'],
+                                                        hyperparams['epsilon'])
             # self.opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(self.opt)
             self.grads = self.opt.compute_gradients(self.loss_total, var_list=self.vars)
             self.training_op = self.opt.apply_gradients(self.grads)
@@ -432,10 +436,14 @@ class Model:
                             #        phys_numbers[randidx[x, y], 4]),
                             transform=axes[x, y].transAxes,
                             fontsize=6)
+            axes[x, y].text(0.6, 0.05,
+                            "attn max: {:.3f}".format(np.max(attn_mask[randidx[x, y], 0, :, 0])),
+                            transform=axes[x, y].transAxes, fontsize=6)
             mask_color = np.ones((attn_mask[randidx[x, y]].shape[1], 4))
             mask_color[:, 0] = 0.0
             mask_color[:, 2] = 0.0
-            mask_color[:, 3] = attn_mask[randidx[x, y]][0, :, 0]
+            mask_color[:, 3] = (attn_mask[randidx[x, y], 0, :, 0] /
+                                np.max(attn_mask[randidx[x, y], 0, :, 0]))
             mask_color = mask_color[np.newaxis, :, :]
             axes[x, y].imshow(mask_color, aspect='auto',
                               extent=(0.0, 256.0,
