@@ -142,10 +142,10 @@ def train(hyperparams):
                                             feed_dict={model.training: True})
                 # Keep track of average loss
                 temp_loss_train += loss_train / num_batches
+            loss_train = temp_loss_train
             # Stupid workaround for wandb complaining about writing to older history rows
             if epoch % 10 != 0 and epoch != hyperparams['steps'] - 1:
                 wandb.log({'loss_train': loss_train}, step=epoch)
-            loss_train = temp_loss_train
 
             print("[" + "=" * int(20.0 * (epoch % 10) / 10.0) +
                   " " * (20 - int(20.0 * (epoch % 10) / 10.0)) +
@@ -212,17 +212,19 @@ if __name__ == '__main__':
                    # 'size_l1': 50,
                    # 'size_l2': 50,
                    # 'size_trans': 50,
-                   'filters': 8,
+                   'attn_filters': 4,
+                   'feat_filters': 8,
+                   'filters': 32,
                    'size_diff': 64,
                    'n_output': 256,
                    # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
-                   'loss_rebuilt': 0.2,  # 2 Controls the influence of the rebuilt curve
+                   'loss_rebuilt': 6.0,  # 2 Controls the influence of the rebuilt curve
                    # 'loss_theory': 0.00,  # 0.01 Controls how tightly the theory must fit the original
                    # 'loss_discrepancy': 0.0,  # 0.001 Controls how small the discrepancy must be
                    'loss_physics': 2.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
-                   'l2_CNN': 0.001,
+                   'l2_CNN': 0.05,
                    'l2_discrepancy': 1.0,
                    'l2_translator': 0.00,
                    'loss_scale': 10.0,  # Controls the scale of the sqrt loss function
@@ -232,13 +234,13 @@ if __name__ == '__main__':
                    'beta1': 0.9,
                    'beta2': 0.999,
                    'epsilon': 1e-8,
-                   'batch_momentum': 0.9,
-                   'batch_size': 64,
+                   'batch_momentum': 0.95,
+                   'batch_size': 128,
                    # Training info
                    'steps': 60,
                    'seed': 137,
-                   'restore': True,
-                   'restore_model': "model-20200907230327-final",
+                   'restore': False,
+                   'restore_model': "model-AAA-final",
                    'surrogate_model': "model-20200327211709-final",
                    # Data parameters
                    'frac_train': 0.8,
@@ -261,18 +263,15 @@ if __name__ == '__main__':
                                 'edge2_avg',
                                 'core_avg',
                                 'walt1_avg'],
-                   'datasets_synthetic': [#'16-18_0-20_0-5-10_-50--20_20-60_corrupt-esat',
-                                          #'15-18_-30-30_0-1-10_-100--20_20-100_corrupt-esat',
-                                          #'15-18_-30-20_0-1-10_-100-100_corrupt-esat-continuous',
-                                          '15-18_-50-40_0-1-12_-120-100_corrupt-esat_0-5-2'],
-                   'num_examples': 1 * 2 ** 16,  # Examples from each dataset (use all if # too large)
-                   'num_synthetic_examples': int(1.0 * 2 ** 20),  # See comment above
-                   'offset_scale': 0.03,
+                   'datasets_synthetic': ['15-18_-50-40_0-1-12_-120-100_corrupt-esat_0-5-2'],
+                   'num_examples': 1 * 2 ** 20,  # Examples from each dataset (use all if # too large)
+                   'num_synthetic_examples': int(1.0 * 2 ** 19),  # See comment above
+                   'offset_scale': 0.0,
                    'noise_scale': 0.03
                    }
 
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Long run -- contiue off of 20200907230327, + real data, 0.05 noise and offset")
+               notes="Trying atnn kernel size of 32. Include core. 4 attn filters, half synthetic. LR 3e-4")
 
     print("Hyperparameters:")
     for param in hyperparams.items():

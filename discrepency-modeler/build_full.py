@@ -3,6 +3,7 @@ from functools import partial
 import numpy as np
 from matplotlib import pyplot as plt
 import scipy.stats as stats
+import sys
 
 
 class Model:
@@ -65,119 +66,141 @@ class Model:
         pool_layer = partial(tf.layers.average_pooling2d, padding='same')
 
         batch_norm = partial(tf.layers.batch_normalization, training=self.training,
-                             momentum=hyperparams['batch_momentum'])
+                             momentum=hyperparams['batch_momentum'], renorm=True)
 
-        # middle_size = 8
-        middle_size = 4
         filters = hyperparams['filters']
-        attn_filters = 8
-        feat_filters = 8
+        attn_filters = hyperparams['attn_filters']
+        feat_filters = hyperparams['feat_filters']
 
         with tf.variable_scope("attn"):
             self.attn_conv0 = conv_layer(batch_norm(self.X_reshaped), name="attn_conv0",
                                          filters=attn_filters,
-                                         kernel_size=(2, 5), strides=(2, 1), padding='same',
+                                         kernel_size=(2, 32), strides=(2, 1), padding='same',
                                          activation=tf.nn.elu)
             self.attn_conv1 = conv_layer(batch_norm(self.attn_conv0), name="attn_conv1",
                                          filters=attn_filters,
-                                         kernel_size=(1, 5), strides=(1, 1), padding='same',
+                                         kernel_size=(1, 32), strides=(1, 1), padding='same',
                                          activation=tf.nn.elu)
             self.attn_conv2 = conv_layer(batch_norm(self.attn_conv1), name="attn_conv2",
                                          filters=attn_filters,
-                                         kernel_size=(1, 5), strides=(1, 1), padding='same',
+                                         kernel_size=(1, 32), strides=(1, 1), padding='same',
                                          activation=tf.nn.elu)
             self.attn_conv3 = conv_layer(batch_norm(tf.concat([self.attn_conv0,
-                                                              self.attn_conv2], 3)),
+                                                               self.attn_conv2], 1)),
                                          name="attn_conv3", filters=attn_filters,
-                                         kernel_size=(1, 5), strides=(1, 1), padding='same',
+                                         kernel_size=(2, 32), strides=(2, 1), padding='same',
                                          activation=tf.nn.elu)
             self.attn_conv4 = conv_layer(batch_norm(self.attn_conv3), name="attn_conv4",
                                          filters=attn_filters,
-                                         kernel_size=(1, 5), strides=(1, 1), padding='same',
+                                         kernel_size=(1, 32), strides=(1, 1), padding='same',
                                          activation=tf.nn.elu)
-            # Include vsweep here to give location information
             self.attn_conv5 = conv_layer(batch_norm(tf.concat([self.attn_conv0,
-                                                              self.attn_conv4], 3)),
+                                                               self.attn_conv2,
+                                                               self.attn_conv4], 1)),
                                          name="attn_conv5", filters=attn_filters,
-                                         kernel_size=(2, 5), strides=(2, 1), padding='same',
+                                         kernel_size=(3, 32), strides=(3, 1), padding='same',
                                          activation=tf.nn.elu)
             self.attn_flat = conv_layer(batch_norm(self.attn_conv5), name="attn_flat", filters=1,
                                         kernel_size=(1, 1), strides=(1, 1), padding='valid')
             # This soft attention mask is shape (batch_size, 1, 256, 1)
-            # self.attention_mask = tf.sigmoid(batch_norm(self.attn_flat))
-            # self.attention_mask = tf.identity(self.attention_mask /
-            #                                   tf.math.reduce_max(self.attention_mask, axis=2,
-            #                                                      keep_dims=True),
+            self.attention_mask = tf.sigmoid(batch_norm(self.attn_flat))
+            self.attention_mask = tf.identity(self.attention_mask /
+                                              tf.math.reduce_mean(self.attention_mask, axis=2,
+                                                                  keep_dims=True),
+                                              name="attention_mask")
+            # self.attention_mask = tf.nn.softmax(self.attn_flat, axis=2,
+            #                                     name="attention_mask")
+
+            # self.attention_mask = tf.nn.sigmoid(self.attn_flat)
+            # self.attention_mask = tf.math.divide(self.attention_mask,
+            #                                      tf.math.reduce_max(self.attention_mask, axis=2,
+            #                                                         keep_dims=True),
+            #                                      name="OG_attention_mask")
+            # arange = tf.constant(np.arange(0, hyperparams['n_inputs']), shape=[1, 256],
+            #                      dtype=tf.float32)
+            # moments = dense_layer(batch_norm(self.attn_flat[:, 0, :, 0]), 2, activation=tf.nn.elu,
+            #                       name="moments")
+            # normal = tf.distributions.Normal(moments[:, 0:1] + 128, moments[:, 1:2])
+            # self.attention_mask = tf.identity(tf.reshape(normal.prob(arange), [-1, 1, 256, 1]),
             #                                   name="attention_mask")
-            self.attention_mask = tf.nn.softmax(self.attn_flat, axis=2,
-                                                name="attention_mask")
 
         with tf.variable_scope("feat"):
             self.feat_conv0 = conv_layer(batch_norm(self.X_reshaped),
                                          name="feat_conv0", filters=feat_filters,
-                                         kernel_size=(2, 8), strides=(1, 1), padding='same',
+                                         kernel_size=(2, 16), strides=(2, 1), padding='same',
                                          activation=tf.nn.elu)
-            self.feat_pool0 = pool_layer(self.feat_conv0, name="feat_pool0",
-                                         pool_size=(1, 8), strides=(1, 1))
-
-            self.feat_conv1 = conv_layer(batch_norm(self.feat_pool0),
+            self.feat_conv1 = conv_layer(batch_norm(self.feat_conv0),
                                          name="feat_conv1", filters=feat_filters,
-                                         kernel_size=(2, 8), strides=(1, 1), padding='same',
+                                         kernel_size=(1, 1), strides=(1, 1), padding='same',
                                          activation=tf.nn.elu)
-            self.feat_pool1 = pool_layer(self.feat_conv1, name="feat_pool1",
-                                         pool_size=(1, 8), strides=(1, 1))
-
-            self.feat_conv2 = conv_layer(batch_norm(self.feat_pool1),
+            self.feat_conv2 = conv_layer(batch_norm(self.feat_conv1),
                                          name="feat_conv2", filters=feat_filters,
-                                         kernel_size=(2, 8), strides=(1, 1), padding='same',
+                                         kernel_size=(1, 1), strides=(1, 1), padding='same',
                                          activation=tf.nn.elu)
-            self.feat_pool2 = pool_layer(self.feat_conv2, name="feat_pool2",
-                                         pool_size=(1, 8), strides=(1, 1))
+            # self.feat_pool0 = pool_layer(self.feat_conv0, name="feat_pool0",
+            #                              pool_size=(1, 8), strides=(1, 1))
 
-            self.feat_conv3 = conv_layer(batch_norm(tf.concat([self.feat_pool0,
-                                                              self.feat_pool2], 3)),
-                                         name="feat_conv3", filters=feat_filters,
-                                         kernel_size=(2, 8), strides=(1, 1), padding='same',
-                                         activation=tf.nn.elu)
-            self.feat_pool3 = pool_layer(self.feat_conv3, name="feat_pool3",
-                                         pool_size=(1, 8), strides=(1, 1))
+            # self.feat_conv1 = conv_layer(batch_norm(self.feat_pool0),
+            #                              name="feat_conv1", filters=feat_filters,
+            #                              kernel_size=(2, 8), strides=(1, 1), padding='same',
+            #                              activation=tf.nn.elu)
+            # self.feat_pool1 = pool_layer(self.feat_conv1, name="feat_pool1",
+            #                              pool_size=(1, 8), strides=(1, 1))
+
+            # self.feat_conv2 = conv_layer(batch_norm(self.feat_pool1),
+            #                              name="feat_conv2", filters=feat_filters,
+            #                              kernel_size=(2, 8), strides=(1, 1), padding='same',
+            #                              activation=tf.nn.elu)
+            # self.feat_pool2 = pool_layer(self.feat_conv2, name="feat_pool2",
+            #                              pool_size=(1, 8), strides=(1, 1))
+
+            # self.feat_conv3 = conv_layer(batch_norm(tf.concat([self.feat_pool0,
+            #                                                   self.feat_pool2], 3)),
+            #                              name="feat_conv3", filters=feat_filters,
+            #                              kernel_size=(2, 8), strides=(1, 1), padding='same',
+            #                              activation=tf.nn.elu)
+            # self.feat_pool3 = pool_layer(self.feat_conv3, name="feat_pool3",
+            #                              pool_size=(1, 8), strides=(1, 1))
 
             # print_op = tf.print("attn_mask shape: ", self.attention_mask.shape,
-            #                     "\nfeat_pool shape: ", self.feat_pool1.shape,
-            #                     "\nattn_conv shape: ", self.attn_conv1.shape,
+            #                     "\nfeat_conv2 shape: ", self.feat_conv2.shape,
             #                     output_stream=sys.stdout)
             # with tf.control_dependencies([print_op]):
-            self.attention_glimpse = self.attention_mask * self.feat_pool3
+            self.attention_glimpse = self.attention_mask * self.feat_conv2
 
         with tf.variable_scope("nn"):
             self.layer_conv0 = conv_layer(batch_norm(self.attention_glimpse), name="layer_conv0",
-                                          filters=filters, kernel_size=(2, 8), strides=(1, 2),
+                                          filters=filters, kernel_size=(1, 8), strides=(1, 2),
                                           padding='same', activation=tf.nn.elu)
             self.layer_pool0 = pool_layer(self.layer_conv0, name="layer_pool0",
                                           pool_size=(1, 8), strides=(1, 2))
 
             self.layer_conv1 = conv_layer(batch_norm(self.layer_pool0), name="layer_conv1",
-                                          filters=filters * 2, kernel_size=(2, 8), strides=(1, 2),
+                                          filters=filters * 2, kernel_size=(1, 8), strides=(1, 2),
                                           padding='same', activation=tf.nn.elu)
             self.layer_pool1 = pool_layer(self.layer_conv1, name="layer_pool1",
                                           pool_size=(1, 8), strides=(1, 2))
 
             self.layer_conv2 = conv_layer(batch_norm(self.layer_pool1), name="layer_conv2",
-                                          filters=filters * 4, kernel_size=(2, 8), strides=(1, 2),
+                                          filters=filters * 4, kernel_size=(1, 8), strides=(1, 2),
                                           padding='same', activation=tf.nn.elu)
             self.layer_pool2 = pool_layer(self.layer_conv2, name="layer_pool2",
                                           pool_size=(1, 8), strides=(1, 2))
 
+            middle_size = 4
             # Reshape for input into dense layers or whatever (TensorFlow needs explicit
             #   dimensions for NNs except for the batch size).
-            self.conv_flattened = tf.reshape(self.layer_pool2, [-1, 2 * middle_size * filters * 4])
-            self.layer_nn1 = dense_layer(batch_norm(self.conv_flattened), 32, activation=tf.nn.elu)
-            self.layer_nn2 = dense_layer(batch_norm(self.layer_nn1), 32, activation=tf.nn.elu)
+            self.conv_flattened = tf.reshape(self.layer_pool2, [-1, middle_size * filters * 4])
+            self.layer_nn1 = dense_layer((self.conv_flattened), 32, activation=tf.nn.elu)
+            self.layer_nn2 = dense_layer((self.layer_nn1), 32, activation=tf.nn.elu)
             # self.layer_nn3 = dense_layer(self.layer_nn2_activation, 32)
             # self.layer_nn3_activation = tf.nn.elu(self.layer_nn3)
             # self.layer_nn4 = dense_layer(self.layer_nn3_activation, 32)
             # self.layer_nn4_activation = tf.nn.elu(self.layer_nn4)
-
+            # print_op2 = tf.print("output shape: ", self.layer_nn2.shape,
+            #                      "\npool2 shape: ", self.layer_pool2.shape,
+            #                      output_stream=sys.stdout)
+            # with tf.control_dependencies([print_op2]):
             self.CNN_output = tf.identity(self.layer_nn2, name='CNN_output')
 
     def build_linear_translator(self, hyperparams, translator_input):
@@ -185,12 +208,14 @@ class Model:
                               .variance_scaling_initializer(seed=hyperparams['seed']),
                               kernel_regularizer=tf.contrib.layers
                               .l2_regularizer(hyperparams['l2_translator']))
+        n_inputs = hyperparams['n_inputs']
 
         with tf.variable_scope("trans"):
             # This is the learned offset for the sweep to be applied to theory curves.
-            self.layer_offset = dense_layer(translator_input, 1, name="layer_offset")
+            self.layer_offset = dense_layer(self.X[:, n_inputs:n_inputs + 16],
+                                            1, name="layer_offset")
             self.layer_offset_activation = tf.identity(self.layer_offset,
-                                                       name="layer_offset_activation") / 100.0
+                                                       name="layer_offset_activation") / 1000.0
             # Divided by 100 to make it easier to learn.
 
             self.layer_convert = dense_layer(translator_input, hyperparams['n_phys_inputs'],
