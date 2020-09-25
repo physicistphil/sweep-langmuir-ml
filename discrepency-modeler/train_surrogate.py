@@ -31,15 +31,24 @@ scalefactor = np.array([1e-17, 1e-1, 1e19, 1e0])
 
 # Note: the generator will not be serialized with the graph when saved (see TF docs).
 def trace_generator(hyperparams, limit=-1):
-    ne_range = np.array([1e16, 5e18])
-    Vp_range = np.array([-20, 30])
+    ne_range = np.array([1e15, 1e18])
+    Vp_range = np.array([-50, 40])
     e = 1.602e-19  # Elementary charge
-    Te_range = np.array([0.5, 10]) * e
-    vsweep_lower_range = np.array([-50, -20])
-    vsweep_upper_range = np.array([50, 100])
+    Te_range = np.array([0.1, 12]) * e
+    vsweep_lower_range = np.array([-120, Vp_range[0] - 10])
+    vsweep_upper_range = np.array([Vp_range[1], 100])
     # One call of the generator is one batch.
     size = hyperparams['batch_size']
+    n_inputs = hyperparams['n_inputs']
     S = 2e-6
+
+    me = 9.109e-31
+
+    print("ne_range: ", ne_range,
+          "\nVp_range: ", Vp_range,
+          "\nTe_range: ", Te_range,
+          "\nvsweep_lower_range: ", vsweep_lower_range,
+          "\nvsweep_upper_range: ", vsweep_upper_range)
 
     # Iteration counter
     i = 0
@@ -49,15 +58,35 @@ def trace_generator(hyperparams, limit=-1):
         #   determinism is preserved.
         # We must not modify hyperparams or else we'll end up with a seed that exceeds 2^32 - 1.
         #   See https://oeis.org/A000217
-        new_hyperparams = {'seed': hyperparams['seed'] + i, 'n_inputs': hyperparams['n_inputs']}
+        # new_hyperparams = {'seed': hyperparams['seed'] + i, 'n_inputs': hyperparams['n_inputs']}
         i += 1
-        ne, Vp, Te, vsweep, current \
-            = generate.generate_random_traces_from_array(ne_range, Vp_range, Te_range,
-                                                         vsweep_lower_range, vsweep_upper_range,
-                                                         new_hyperparams, size, S=S)
-        yield np.hstack((ne[:, np.newaxis] * scalefactor[0],
-                         Vp[:, np.newaxis] * scalefactor[1],
-                         Te[:, np.newaxis] * scalefactor[2],
+        # ne, Vp, Te, vsweep, current \
+        #     = generate.generate_random_traces_from_array(ne_range, Vp_range, Te_range,
+        #                                                  vsweep_lower_range, vsweep_upper_range,
+        #                                                  new_hyperparams, size, S=S)
+
+        np.random.seed(i + 0)
+        vsweep_lower = np.random.uniform(vsweep_lower_range[0], vsweep_lower_range[1], size)
+        np.random.seed(i + 1)
+        vsweep_upper = np.random.uniform(vsweep_upper_range[0], vsweep_upper_range[1], size)
+        vsweep = np.ndarray(shape=(size, n_inputs))
+        vsweep = np.linspace(vsweep_lower, vsweep_upper, 256, axis=1)
+
+        np.random.seed(i + 2)
+        ne = (np.exp(np.random.uniform(np.log(ne_range[0]), np.log(ne_range[1]), (size, 1))))
+        np.random.seed(i + 3)
+        Vp = (np.random.uniform(Vp_range[0], Vp_range[1], (size, 1)))
+        np.random.seed(i + 4)
+        Te = (np.random.uniform(Te_range[0], Te_range[1], (size, 1)))
+
+        I_esat = S * ne * e / np.sqrt(2 * np.pi * me)
+        current = I_esat * np.sqrt(Te) * np.exp(-e * (Vp - vsweep) / Te)
+        esat_condition = Vp < vsweep
+        current[esat_condition] = np.repeat(I_esat * np.sqrt(Te), n_inputs, axis=1)[esat_condition]
+
+        yield np.hstack((ne * scalefactor[0],
+                         Vp * scalefactor[1],
+                         Te * scalefactor[2],
                          vsweep * scalefactor[3])), current
 
 
@@ -173,14 +202,21 @@ if __name__ == '__main__':
                    'momentum': 0.99,
                    'batch_momentum': 0.99,
                    'l2_scale': 0.00,
-                   'batch_size': 256,  # Actual batch size is n_inputs * batch_size (see build_NN)
+                   'batch_size': 1024,  # Actual batch size is n_inputs * batch_size (see build_NN)
                    # Data paramters
                    'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info
-                   'steps': 100,
+                   'steps': 5000,
                    'seed': 0,
-                   'restore': True,
-                   'restore_model': "model-20200326172157-final"
+                   'restore': False,
+                   'restore_model': "model-20200327211709-final"
                    }
-    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,)
+    wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
+               notes="Expanded parameter sweep range compared to 20200327211709 (no cont). Generate sweeps with no flat bits.")
+
+    print("Hyperparameters:")
+    for param in hyperparams.items():
+        print("{}: {}".format(param[0], param[1]))
+    print("\n")
+
     train(hyperparams)
