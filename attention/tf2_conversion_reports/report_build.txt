@@ -1,0 +1,71 @@
+TensorFlow 2.0 Upgrade Script
+-----------------------------
+Converted 1 files
+Detected 2 issues that require attention
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+File: build.py
+--------------------------------------------------------------------------------
+build.py:30:35: WARNING: Changing dataset.make_initializable_iterator() to tf.compat.v1.data.make_initializable_iterator(dataset). Please check this transformation.
+
+build.py:36:34: WARNING: Changing dataset.make_initializable_iterator() to tf.compat.v1.data.make_initializable_iterator(dataset). Please check this transformation.
+
+================================================================================
+Detailed log follows:
+
+================================================================================
+--------------------------------------------------------------------------------
+Processing file 'build.py'
+ outputting to 'build_tf2.py'
+--------------------------------------------------------------------------------
+
+11:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+12:30: INFO: Renamed 'tf.placeholder' to 'tf.compat.v1.placeholder'
+16:29: INFO: Renamed 'tf.placeholder' to 'tf.compat.v1.placeholder'
+29:61: INFO: Renamed 'tf.contrib.data.AUTOTUNE' to 'tf.data.experimental.AUTOTUNE'
+30:35: WARNING: Changing dataset.make_initializable_iterator() to tf.compat.v1.data.make_initializable_iterator(dataset). Please check this transformation.
+
+35:59: INFO: Renamed 'tf.contrib.data.AUTOTUNE' to 'tf.data.experimental.AUTOTUNE'
+36:34: WARNING: Changing dataset.make_initializable_iterator() to tf.compat.v1.data.make_initializable_iterator(dataset). Please check this transformation.
+
+43:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+45:21: INFO: Added keywords to args of function 'tf.cond'
+48:27: INFO: Added keywords to args of function 'tf.shape'
+53:29: INFO: Renamed 'tf.layers.conv2d' to 'tf.compat.v1.layers.conv2d'
+54:48: INFO: Changing tf.contrib.layers.variance_scaling_initializer to a tf.compat.v1.keras.initializers.VarianceScaling and converting arguments.
+
+56:48: INFO: Multiplying scale arg of tf.contrib.layers.l2_regularizer by half to what tf.keras.regularizers.l2 expects.
+
+60:30: INFO: Renamed 'tf.layers.dense' to 'tf.compat.v1.layers.dense'
+60:66: INFO: Changing tf.contrib.layers.variance_scaling_initializer to a tf.compat.v1.keras.initializers.VarianceScaling and converting arguments.
+
+62:49: INFO: Multiplying scale arg of tf.contrib.layers.l2_regularizer by half to what tf.keras.regularizers.l2 expects.
+
+66:29: INFO: Renamed 'tf.layers.average_pooling2d' to 'tf.compat.v1.layers.average_pooling2d'
+68:29: INFO: Renamed 'tf.layers.batch_normalization' to 'tf.compat.v1.layers.batch_normalization'
+75:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+108:46: INFO: Added keywords to args of function 'tf.math.reduce_mean'
+108:46: INFO: Renamed keyword argument for tf.math.reduce_mean from keep_dims to keepdims
+127:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+171:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+207:30: INFO: Renamed 'tf.layers.dense' to 'tf.compat.v1.layers.dense'
+207:66: INFO: Changing tf.contrib.layers.variance_scaling_initializer to a tf.compat.v1.keras.initializers.VarianceScaling and converting arguments.
+
+209:49: INFO: Multiplying scale arg of tf.contrib.layers.l2_regularizer by half to what tf.keras.regularizers.l2 expects.
+
+213:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+229:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+268:25: INFO: Renamed 'tf.where_v2' to 'tf.compat.v2.where'
+271:28: INFO: Renamed 'tf.where_v2' to 'tf.compat.v2.where'
+339:16: INFO: Renamed 'tf.where' to 'tf.compat.v1.where'
+351:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+369:33: INFO: Added keywords to args of function 'tf.reduce_sum'
+374:38: INFO: Added keywords to args of function 'tf.reduce_sum'
+377:34: INFO: Added keywords to args of function 'tf.reduce_sum'
+381:33: INFO: Added keywords to args of function 'tf.reduce_sum'
+402:39: INFO: Added keywords to args of function 'tf.shape'
+403:56: INFO: Renamed 'tf.GraphKeys' to 'tf.compat.v1.GraphKeys'
+406:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+419:19: INFO: Renamed 'tf.train.Saver' to 'tf.compat.v1.train.Saver'
+--------------------------------------------------------------------------------
+

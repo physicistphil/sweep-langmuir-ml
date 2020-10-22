@@ -5,7 +5,7 @@ from functools import partial
 
 class Model:
     def build_data_pipeline(self, hyperparams):
-        with tf.name_scope("data"):
+        with tf.compat.v1.name_scope("data"):
             self.X = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2],
                                               name="X")
             self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
@@ -13,30 +13,30 @@ class Model:
             self.X_mean = tf.compat.v1.placeholder(tf.float32, name="X_mean")
 
     def build_encoder(self, hyperparams, X):
-        conv_layer = partial(tf.layers.conv2d,
+        conv_layer = partial(tf.compat.v1.layers.conv2d,
                              padding='same', activation=None,
-                             kernel_initializer=tf.contrib.layers
-                             .variance_scaling_initializer(seed=hyperparams['seed']),
-                             kernel_regularizer=tf.contrib.layers
-                             .l2_regularizer(hyperparams['l2_scale']),
+                             kernel_initializer=tf.compat.v1.keras.initializers
+                             .VarianceScaling(scale=2.0, seed=hyperparams['seed']),
+                             kernel_regularizer=tf.keras.regularizers
+                             .l2(0.5 * (hyperparams['l2_scale'])),
                              )
 
-        pool_layer = partial(tf.layers.max_pooling2d, padding='same')
+        pool_layer = partial(tf.compat.v1.layers.max_pooling2d, padding='same')
 
-        dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
-                              .variance_scaling_initializer(seed=hyperparams['seed']),
-                              kernel_regularizer=tf.contrib.layers
-                              .l2_regularizer(hyperparams['l2_scale']))
-        batch_norm = partial(tf.layers.batch_normalization, training=self.training,
+        dense_layer = partial(tf.compat.v1.layers.dense, kernel_initializer=tf.compat.v1.keras.initializers
+                              .VarianceScaling(scale=2.0, seed=hyperparams['seed']),
+                              kernel_regularizer=tf.keras.regularizers
+                              .l2(0.5 * (hyperparams['l2_scale'])))
+        batch_norm = partial(tf.compat.v1.layers.batch_normalization, training=self.training,
                              momentum=hyperparams['momentum'])
 
         filters = hyperparams['filters']
         middle_size = 8
-        with tf.name_scope("nn"):
+        with tf.compat.v1.name_scope("nn"):
             # X needs to be 4d for input into convolution layers
             self.X_reshaped = tf.reshape(X, [-1, 2, hyperparams['n_inputs'], 1])
 
-            with tf.variable_scope("base"):
+            with tf.compat.v1.variable_scope("base"):
                 self.layer_conv0 = conv_layer(self.X_reshaped, name="layer_conv0", filters=filters,
                                               kernel_size=(2, 5), strides=(1, 1))
                 # Just keep middle row (making the height dimension padding 'valid').
@@ -87,7 +87,7 @@ class Model:
     # Analytic input is size [batch_size, n_phys_inputs] with values of order 1.
     # vsweep unscaled is the original values of the vsweep.
     def build_analytical_model(self, hyperparams, analytic_input, vsweep_unscaled):
-        with tf.variable_scope("phys"):
+        with tf.compat.v1.variable_scope("phys"):
             # Physical model branch
             # Constrain to guarantee positive numbers (or else NaNs appear from sqrt).
             epsilon = 1e-12
@@ -122,23 +122,23 @@ class Model:
             current = (I_esat * tf.sqrt(Te) * tf.exp(-(Vp - vsweep) / Te))
             esat_condition = tf.less(Vp, vsweep)
             # Need the _v2 to have good broadcasting support (requires TF >= 1.14).
-            esat_filled = tf.where_v2(esat_condition, I_esat * tf.sqrt(Te), current)
+            esat_filled = tf.compat.v2.where(esat_condition, I_esat * tf.sqrt(Te), current)
 
             # This is the output of the model that's given to the user.
             self.phys_output = tf.identity(esat_filled, name="output")
 
     def build_loss(self, hyperparams, phys_output, current, current_mean, current_ptp):
-        with tf.variable_scope("loss"):
+        with tf.compat.v1.variable_scope("loss"):
             # Output to optimize on. Scale to match input.
             self.phys_output_scaled = ((phys_output - current_mean) / current_ptp)
             self.phys_loss_base = tf.nn.l2_loss(self.phys_output_scaled - current,
                                                 name="loss_base")
-            self.phys_loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            self.phys_loss_reg = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.REGULARIZATION_LOSSES)
             self.phys_loss_total = tf.add_n([self.phys_loss_base] + self.phys_loss_reg,
                                             name="loss_total")
 
-        with tf.variable_scope("train"):
-            self.phys_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+        with tf.compat.v1.variable_scope("train"):
+            self.phys_vars = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)
             self.phys_opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                                  hyperparams['momentum'],
                                                                  use_nesterov=True)

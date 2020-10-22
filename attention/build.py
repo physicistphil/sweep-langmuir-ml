@@ -8,12 +8,12 @@ import sys
 
 class Model:
     def build_data_pipeline(self, hyperparams, data_mean, data_ptp):
-        with tf.variable_scope("pipeline"):
-            self.data_train = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
+        with tf.compat.v1.variable_scope("pipeline"):
+            self.data_train = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
                                                           hyperparams['n_flag_inputs'] +
                                                           # hyperparams['n_phys_inputs'] - 2])
                                                           hyperparams['n_phys_inputs']])
-            self.data_test = tf.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
+            self.data_test = tf.compat.v1.placeholder(tf.float32, [None, hyperparams['n_inputs'] * 2 +
                                                          hyperparams['n_flag_inputs'] +
                                                          # hyperparams['n_phys_inputs'] - 2])
                                                          hyperparams['n_phys_inputs']])
@@ -26,53 +26,53 @@ class Model:
             self.dataset_train = tf.data.Dataset.from_tensor_slices(self.data_train)
             self.dataset_train = self.dataset_train.batch(hyperparams['batch_size'])
             self.dataset_train = self.dataset_train.repeat()
-            self.dataset_train = self.dataset_train.prefetch(tf.contrib.data.AUTOTUNE)
-            self.data_train_iter = self.dataset_train.make_initializable_iterator()
+            self.dataset_train = self.dataset_train.prefetch(tf.data.experimental.AUTOTUNE)
+            self.data_train_iter = tf.compat.v1.data.make_initializable_iterator(self.dataset_train)
 
             self.dataset_test = tf.data.Dataset.from_tensor_slices(self.data_test)
             self.dataset_test = self.dataset_test.batch(hyperparams['batch_size'])
             self.dataset_test = self.dataset_test.repeat()
-            self.dataset_test = self.dataset_test.prefetch(tf.contrib.data.AUTOTUNE)
-            self.data_test_iter = self.dataset_test.make_initializable_iterator()
+            self.dataset_test = self.dataset_test.prefetch(tf.data.experimental.AUTOTUNE)
+            self.data_test_iter = tf.compat.v1.data.make_initializable_iterator(self.dataset_test)
 
             # No y because this whole thing is pretty much an AE
             self.data_X_train = self.data_train_iter.get_next()
             self.data_X_test = self.data_test_iter.get_next()
 
     def build_CNN(self, hyperparams, X_train, X_test):
-        with tf.variable_scope("data"):
+        with tf.compat.v1.variable_scope("data"):
             self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
-            self.X = tf.cond(self.training, true_fn=lambda: X_train, false_fn=lambda: X_test)
+            self.X = tf.cond(pred=self.training, true_fn=lambda: X_train, false_fn=lambda: X_test)
             self.X_phys = tf.identity(self.X[:, hyperparams['n_inputs'] * 2:], name="X_phys")
             self.X = tf.identity(self.X[:, 0:hyperparams['n_inputs'] * 2], name="X")
-            self.X_shape = tf.shape(self.X)
+            self.X_shape = tf.shape(input=self.X)
 
             # X needs to be 4d for input into convolution layers
             self.X_reshaped = tf.reshape(self.X, [-1, 2, hyperparams['n_inputs'], 1])
 
-        conv_layer = partial(tf.layers.conv2d, activation=None,
-                             kernel_initializer=tf.contrib.layers
-                             .variance_scaling_initializer(seed=hyperparams['seed']),
-                             kernel_regularizer=tf.contrib.layers
-                             .l2_regularizer(hyperparams['l2_CNN']),
+        conv_layer = partial(tf.compat.v1.layers.conv2d, activation=None,
+                             kernel_initializer=tf.compat.v1.keras.initializers
+                             .VarianceScaling(scale=2.0, seed=hyperparams['seed']),
+                             kernel_regularizer=tf.keras.regularizers
+                             .l2(0.5 * (hyperparams['l2_CNN'])),
                              )
 
-        dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
-                              .variance_scaling_initializer(seed=hyperparams['seed']),
-                              kernel_regularizer=tf.contrib.layers
-                              .l2_regularizer(hyperparams['l2_CNN']))
+        dense_layer = partial(tf.compat.v1.layers.dense, kernel_initializer=tf.compat.v1.keras.initializers
+                              .VarianceScaling(scale=2.0, seed=hyperparams['seed']),
+                              kernel_regularizer=tf.keras.regularizers
+                              .l2(0.5 * (hyperparams['l2_CNN'])))
 
         # pool_layer = partial(tf.layers.max_pooling2d, padding='same')
-        pool_layer = partial(tf.layers.average_pooling2d, padding='same')
+        pool_layer = partial(tf.compat.v1.layers.average_pooling2d, padding='same')
 
-        batch_norm = partial(tf.layers.batch_normalization, training=self.training,
+        batch_norm = partial(tf.compat.v1.layers.batch_normalization, training=self.training,
                              momentum=hyperparams['batch_momentum'], renorm=True)
 
         filters = hyperparams['filters']
         attn_filters = hyperparams['attn_filters']
         feat_filters = hyperparams['feat_filters']
 
-        with tf.variable_scope("attn"):
+        with tf.compat.v1.variable_scope("attn"):
             self.attn_conv0 = conv_layer(batch_norm(self.X_reshaped), name="attn_conv0",
                                          filters=attn_filters,
                                          kernel_size=(2, 32), strides=(2, 1), padding='same',
@@ -105,8 +105,8 @@ class Model:
             # This soft attention mask is shape (batch_size, 1, 256, 1)
             self.attention_mask = tf.sigmoid(batch_norm(self.attn_flat))
             self.attention_mask = tf.identity(self.attention_mask /
-                                              tf.math.reduce_mean(self.attention_mask, axis=2,
-                                                                  keep_dims=True),
+                                              tf.math.reduce_mean(input_tensor=self.attention_mask, axis=2,
+                                                                  keepdims=True),
                                               name="attention_mask")
             # self.attention_mask = tf.nn.softmax(self.attn_flat, axis=2,
             #                                     name="attention_mask")
@@ -124,7 +124,7 @@ class Model:
             # self.attention_mask = tf.identity(tf.reshape(normal.prob(arange), [-1, 1, 256, 1]),
             #                                   name="attention_mask")
 
-        with tf.variable_scope("feat"):
+        with tf.compat.v1.variable_scope("feat"):
             self.feat_conv0 = conv_layer(batch_norm(self.X_reshaped),
                                          name="feat_conv0", filters=feat_filters,
                                          kernel_size=(2, 16), strides=(2, 1), padding='same',
@@ -168,7 +168,7 @@ class Model:
             # with tf.control_dependencies([print_op]):
             self.attention_glimpse = self.attention_mask * self.feat_conv2
 
-        with tf.variable_scope("nn"):
+        with tf.compat.v1.variable_scope("nn"):
             self.layer_conv0 = conv_layer(batch_norm(self.attention_glimpse), name="layer_conv0",
                                           filters=filters, kernel_size=(1, 8), strides=(1, 2),
                                           padding='same', activation=tf.nn.elu)
@@ -204,13 +204,13 @@ class Model:
             self.CNN_output = tf.identity(self.layer_nn2, name='CNN_output')
 
     def build_linear_translator(self, hyperparams, translator_input):
-        dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
-                              .variance_scaling_initializer(seed=hyperparams['seed']),
-                              kernel_regularizer=tf.contrib.layers
-                              .l2_regularizer(hyperparams['l2_translator']))
+        dense_layer = partial(tf.compat.v1.layers.dense, kernel_initializer=tf.compat.v1.keras.initializers
+                              .VarianceScaling(scale=2.0, seed=hyperparams['seed']),
+                              kernel_regularizer=tf.keras.regularizers
+                              .l2(0.5 * (hyperparams['l2_translator'])))
         n_inputs = hyperparams['n_inputs']
 
-        with tf.variable_scope("trans"):
+        with tf.compat.v1.variable_scope("trans"):
             # This is the learned offset for the sweep to be applied to theory curves.
             self.layer_offset = dense_layer(self.X[:, n_inputs:n_inputs + 16],
                                             1, name="layer_offset")
@@ -226,7 +226,7 @@ class Model:
             self.phys_input = self.layer_convert_activation
 
     def build_monoenergetic_electron_model(self, hyperparams, phys_input, vsweep, scalefactor):
-        with tf.variable_scope("phys"):
+        with tf.compat.v1.variable_scope("phys"):
             # Physical model branch
             # self.analytic_input = latent_rep
 
@@ -265,10 +265,10 @@ class Model:
             current = Ip * (1 - (Vp - vsweep) / Ep)
             top_condition = tf.less(Vp, vsweep)
             # Need the _v2 to have good broadcasting support (requires TF >= 1.14).
-            top_filled = tf.where_v2(top_condition, Ip, current)
+            top_filled = tf.compat.v2.where(top_condition, Ip, current)
 
             bottom_condition = tf.less_equal(vsweep, Vp - Ep)
-            bottom_filled = tf.where_v2(bottom_condition, tf.constant(0.0), top_filled)
+            bottom_filled = tf.compat.v2.where(bottom_condition, tf.constant(0.0), top_filled)
 
             # This is the output of the model that's given to the user.
             self.monoenergetic_output = tf.identity(bottom_filled, name="output")
@@ -336,7 +336,7 @@ class Model:
     def soft_sqrt(self, tensor, scale=1.0):
         absolute = scale * tf.math.abs(tensor)
         # Coefficients in front of the square root are for smoothness of the function.
-        value = tf.where(absolute > 1.0,
+        value = tf.compat.v1.where(absolute > 1.0,
                          x=(2.0 * tf.math.sqrt(absolute) - 1.0),
                          y=absolute)
         return value
@@ -348,7 +348,7 @@ class Model:
 
     def build_loss(self, hyperparams, original, theory, discrepancy,
                    original_phys_num, scalefactor):
-        with tf.variable_scope("loss"):
+        with tf.compat.v1.variable_scope("loss"):
             # Attention loss (soft constraint to be close to each other)
             # correlation = tf.constant(np.array([stats.norm(i, 100).pdf(np.arange(0, 256, 1))
             #                                     for i in range(256)]) / stats.norm(0, 1).pdf(0),
@@ -366,19 +366,19 @@ class Model:
             loss_scale = hyperparams['loss_scale']
 
             self.loss_physics = (hyperparams['loss_physics'] * 0.5 *
-                                 tf.reduce_sum(tf.expand_dims(original_phys_num[:, 0], 1) *
+                                 tf.reduce_sum(input_tensor=tf.expand_dims(original_phys_num[:, 0], 1) *
                                                (original_phys_num[:, 1:4] *
                                                 scalefactor[0:3] - self.phys_input[:, 0:3]) ** 2))
 
             self.loss_phys_penalty = (hyperparams['loss_phys_penalty'] *
-                                      tf.reduce_sum(self.sqrt(self.phys_input, scale=loss_scale)))
+                                      tf.reduce_sum(input_tensor=self.sqrt(self.phys_input, scale=loss_scale)))
 
             self.l1_CNN_output = (hyperparams['l1_CNN_output'] *
-                                  tf.reduce_sum(tf.math.abs(self.CNN_output)))
+                                  tf.reduce_sum(input_tensor=tf.math.abs(self.CNN_output)))
 
             self.model_output = tf.identity(theory + discrepancy, name="model_output")
             # Penalize errors in the rebuilt trace.
-            self.loss_rebuilt = (tf.reduce_sum((original - self.model_output) ** 2 *
+            self.loss_rebuilt = (tf.reduce_sum(input_tensor=(original - self.model_output) ** 2 *
                                                self.attention_mask[:, 0, :, 0],
                                                name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt']) # / loss_normalization)
@@ -399,11 +399,11 @@ class Model:
                                 self.loss_physics +
                                 self.loss_phys_penalty +
                                 self.l1_CNN_output) /
-                               tf.cast(tf.shape(self.model_output)[0], tf.float32))
-            self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+                               tf.cast(tf.shape(input=self.model_output)[0], tf.float32))
+            self.loss_reg = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_model] + self.loss_reg, name="loss_total")
 
-        with tf.variable_scope("train"):
+        with tf.compat.v1.variable_scope("train"):
             # self.opt = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
             #                                                 hyperparams['momentum'],
             #                                                 use_nesterov=True)
@@ -416,7 +416,7 @@ class Model:
             self.training_op = self.opt.apply_gradients(self.grads)
 
     def load_model(self, sess, model_path):
-        restorer = tf.train.Saver()
+        restorer = tf.compat.v1.train.Saver()
         restorer.restore(sess, model_path)
         print("Model {} has been loaded.".format(model_path))
 

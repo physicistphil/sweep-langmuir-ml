@@ -1,12 +1,10 @@
-# This file should be run from the folder its in. E.g.: python train.py
-
 import tensorflow as tf
 import numpy as np
 from datetime import datetime
 
 # Modify log levels to keep console clean.
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # os.environ['CUDA_VISIBLE_DEVICES'] = ''
 # os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
@@ -17,8 +15,8 @@ import preprocess
 import generate
 
 # From the directory
-import build_full
-import build_analytic  # for the analytical model
+import build
+# import build_analytic  # for the analytical model
 import get_data
 
 # weights and biases -- ML experiment tracker
@@ -26,6 +24,8 @@ import wandb
 
 
 def train(hyperparams):
+    tf.compat.v1.disable_v2_behavior()
+
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     wandb.log({"now": now}, step=0)
     os.mkdir("plots/fig-{}".format(now))
@@ -40,7 +40,7 @@ def train(hyperparams):
               step=0)
 
     # Build the model to train.
-    model = build_full.Model()
+    model = build_tf2.Model()
     # Build the data pipeline
     model.build_data_pipeline(hyperparams, data_mean, data_ptp)
 
@@ -58,13 +58,13 @@ def train(hyperparams):
     surrogate_X = tf.concat([model.phys_input[:, 0:3],  # only provide ne, Vp, and Te
                              vsweep], 1)
     surrogate_path = "./saved_models/" + hyperparams['surrogate_model'] + ".ckpt"
-    surr_import = tf.train.import_meta_graph("./saved_models/" + hyperparams['surrogate_model'] +
+    surr_import = tf.compat.v1.train.import_meta_graph("./saved_models/" + hyperparams['surrogate_model'] +
                                              ".ckpt.meta",
                                              input_map={"data/X": surrogate_X},
                                              import_scope="surrogate")
-    surr_output = tf.get_default_graph().get_tensor_by_name("surrogate/nn/output:0")
+    surr_output = tf.compat.v1.get_default_graph().get_tensor_by_name("surrogate/nn/output:0")
     # Scalefactor from the surrogate model is ne, Vp, Te, and vsweep
-    surr_scalefactor = tf.get_default_graph().get_tensor_by_name("surrogate/const/scalefactor:0")
+    surr_scalefactor = tf.compat.v1.get_default_graph().get_tensor_by_name("surrogate/const/scalefactor:0")
 
     # Build the monoenergetic primary electron model
     # monoenergetic_scalefactor = tf.constant([1e-14, 1 / 5.0])
@@ -83,8 +83,8 @@ def train(hyperparams):
     # model.build_learned_discrepancy_model(hyperparams, model.CNN_output)
 
     # Remove surrogate model from the list of trainable variables (to pass in to the optimizer)
-    training_vars = tf.trainable_variables()
-    removelist = tf.trainable_variables(scope='surrogate')
+    training_vars = tf.compat.v1.trainable_variables()
+    removelist = tf.compat.v1.trainable_variables(scope='surrogate')
     for var in removelist:
         training_vars.remove(var)
     model.vars = training_vars
@@ -99,7 +99,7 @@ def train(hyperparams):
         if grad is not None and var is not None:
             tf.compat.v1.summary.histogram("gradients/" + var.name, grad)
             tf.compat.v1.summary.histogram("variables/" + var.name, var)
-    for var in tf.trainable_variables():
+    for var in tf.compat.v1.trainable_variables():
         tf.compat.v1.summary.histogram("trainables/" + var.name, var)
 
     # Initialize configuration and variables.
@@ -264,8 +264,8 @@ if __name__ == '__main__':
                                 'core_avg',
                                 'walt1_avg'],
                    'datasets_synthetic': ['15-18_-50-40_0-1-12_-120-100_corrupt-esat_0-5-2'],
-                   'num_examples': 1 * 2 ** 20,  # Examples from each dataset (use all if # too large)
-                   'num_synthetic_examples': int(1.0 * 2 ** 19),  # See comment above
+                   'num_examples': 1 * 2 ** 16,  # Examples from each dataset (use all if # too large)
+                   'num_synthetic_examples': int(1.0 * 2 ** 15),  # See comment above
                    'offset_scale': 0.0,
                    'noise_scale': 0.03
                    }

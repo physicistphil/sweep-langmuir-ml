@@ -1,0 +1,42 @@
+TensorFlow 2.0 Upgrade Script
+-----------------------------
+Converted 1 files
+Detected 0 issues that require attention
+--------------------------------------------------------------------------------
+================================================================================
+Detailed log follows:
+
+================================================================================
+--------------------------------------------------------------------------------
+Processing file 'build_analytic.py'
+ outputting to 'build_analytic.py'
+--------------------------------------------------------------------------------
+
+8:13: INFO: `name` passed to `name_scope`. Because you may be re-entering an existing scope, it is not safe to convert automatically,  the v2 name_scope does not support re-entering scopes by name.
+
+8:13: INFO: Renamed 'tf.name_scope' to 'tf.compat.v1.name_scope'
+16:29: INFO: Renamed 'tf.layers.conv2d' to 'tf.compat.v1.layers.conv2d'
+18:48: INFO: Changing tf.contrib.layers.variance_scaling_initializer to a tf.compat.v1.keras.initializers.VarianceScaling and converting arguments.
+
+20:48: INFO: Multiplying scale arg of tf.contrib.layers.l2_regularizer by half to what tf.keras.regularizers.l2 expects.
+
+24:29: INFO: Renamed 'tf.layers.max_pooling2d' to 'tf.compat.v1.layers.max_pooling2d'
+26:30: INFO: Renamed 'tf.layers.dense' to 'tf.compat.v1.layers.dense'
+26:66: INFO: Changing tf.contrib.layers.variance_scaling_initializer to a tf.compat.v1.keras.initializers.VarianceScaling and converting arguments.
+
+28:49: INFO: Multiplying scale arg of tf.contrib.layers.l2_regularizer by half to what tf.keras.regularizers.l2 expects.
+
+30:29: INFO: Renamed 'tf.layers.batch_normalization' to 'tf.compat.v1.layers.batch_normalization'
+35:13: INFO: `name` passed to `name_scope`. Because you may be re-entering an existing scope, it is not safe to convert automatically,  the v2 name_scope does not support re-entering scopes by name.
+
+35:13: INFO: Renamed 'tf.name_scope' to 'tf.compat.v1.name_scope'
+39:17: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+90:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+125:26: INFO: Renamed 'tf.where_v2' to 'tf.compat.v2.where'
+131:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+136:61: INFO: Renamed 'tf.GraphKeys' to 'tf.compat.v1.GraphKeys'
+140:13: INFO: Renamed 'tf.variable_scope' to 'tf.compat.v1.variable_scope'
+141:29: INFO: Renamed 'tf.get_collection' to 'tf.compat.v1.get_collection'
+141:47: INFO: Renamed 'tf.GraphKeys' to 'tf.compat.v1.GraphKeys'
+--------------------------------------------------------------------------------
+

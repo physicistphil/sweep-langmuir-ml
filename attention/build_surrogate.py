@@ -8,9 +8,9 @@ class Model:
     def build_data_pipeline(self, hyperparams, generator, scalefactor):
         # This scalefactor comes from the training exmaple generator. We save it here so we
         #   can use it to correctly scale the input in models that use this model.
-        with tf.variable_scope("const"):
+        with tf.compat.v1.variable_scope("const"):
             self.scalefactor = tf.constant(scalefactor, dtype=np.float32, name="scalefactor")
-        with tf.variable_scope("pipeline"):
+        with tf.compat.v1.variable_scope("pipeline"):
             input_size = hyperparams['n_phys_inputs'] + hyperparams['n_inputs']
             output_size = hyperparams['n_output']
             self.dataset = tf.data.Dataset.from_generator(lambda: generator(hyperparams, limit=-1),
@@ -21,7 +21,7 @@ class Model:
             self.dataset = self.dataset.batch(1)
             self.dataset = self.dataset.prefetch(2)  # Prefetch 2 batches
 
-            self.data_iter = self.dataset.make_initializable_iterator()
+            self.data_iter = tf.compat.v1.data.make_initializable_iterator(self.dataset)
             self.data_X, self.data_y = self.data_iter.get_next()
 
     # Pass X and y as parameters so that creation of the dataset or input is guaranteed to precede
@@ -32,14 +32,14 @@ class Model:
     def build_dense_NN(self, hyperparams, X, y):
         # Training boolean placeholder is necessary for batch normalization.
         self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
-        dense_layer = partial(tf.layers.dense, kernel_initializer=tf.contrib.layers
-                              .xavier_initializer(seed=hyperparams['seed']),
-                              kernel_regularizer=tf.contrib.layers
-                              .l2_regularizer(hyperparams['l2_scale']))
-        batch_norm = partial(tf.layers.batch_normalization, training=self.training,
+        dense_layer = partial(tf.compat.v1.layers.dense, kernel_initializer=tf.compat.v1.keras.initializers
+                              .VarianceScaling(scale=1.0, mode="fan_avg", distribution="uniform", seed=hyperparams['seed']),
+                              kernel_regularizer=tf.keras.regularizers
+                              .l2(0.5 * (hyperparams['l2_scale'])))
+        batch_norm = partial(tf.compat.v1.layers.batch_normalization, training=self.training,
                              momentum=hyperparams['batch_momentum'])
 
-        with tf.variable_scope("data"):
+        with tf.compat.v1.variable_scope("data"):
             # We need to train the surrogate on each indiviudal sweep point instead of the whole
             #   sweep at once -- we want to learn f(voltage), not f(entire voltage sweep). This
             #   should simplify the model and make it easier to train.
@@ -72,7 +72,7 @@ class Model:
             y = y * self.y_scalefactor
 
             # Calculate y_max so that small and large curves are trained equally.
-            y_max = tf.reduce_max(y, axis=1, keepdims=True)
+            y_max = tf.reduce_max(input_tensor=y, axis=1, keepdims=True)
             y_max = tf.tile(y_max, [1, n_inputs])  # Shape is back to original.
 
             # Match dimensions of y with X. Shape will be [batch_size * n_inputs, 1].
@@ -86,7 +86,7 @@ class Model:
         # n_output = hyperparams['n_output']
         n_output = 1
 
-        with tf.variable_scope("nn"):
+        with tf.compat.v1.variable_scope("nn"):
             self.nn_layer1 = dense_layer(X, size_l1, name="nn_layer1")
             self.nn_activ1 = tf.nn.tanh(self.nn_layer1, name="nn_activ1")
 
@@ -118,13 +118,13 @@ class Model:
             self.output = tf.reshape(self.nn_activ_out / self.y_scalefactor, [-1, n_inputs],
                                      name="output")
 
-        with tf.variable_scope("loss"):
-            self.loss_base = (tf.reduce_sum((self.nn_activ_out - y) ** 2 / (self.y_max)) /
+        with tf.compat.v1.variable_scope("loss"):
+            self.loss_base = (tf.reduce_sum(input_tensor=(self.nn_activ_out - y) ** 2 / (self.y_max)) /
                               hyperparams['batch_size'])
-            self.loss_reg = tf.compat.v1.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            self.loss_reg = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_base] + self.loss_reg, name="loss_total")
 
-        with tf.variable_scope("trainer"):
+        with tf.compat.v1.variable_scope("trainer"):
             self.optimizer = tf.compat.v1.train.MomentumOptimizer(hyperparams['learning_rate'],
                                                                   hyperparams['momentum'],
                                                                   use_nesterov=True)
@@ -135,7 +135,7 @@ class Model:
     # Load the neural network model to be used as a step in another model.
     # The graph (built by build_dense_NN) must already be constructed.
     def load_dense_model(self, sess, model_path):
-        restorer = tf.train.Saver()
+        restorer = tf.compat.v1.train.Saver()
         restorer.restore(sess, model_path)
         print("Model {} has been loaded.".format(model_path))
 
