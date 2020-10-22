@@ -224,7 +224,7 @@ if __name__ == '__main__':
                    'loss_physics': 2.0,  # Not included in norm. Loss weight of phys params.
                    'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
-                   'l2_CNN': 0.05,
+                   'l2_CNN': 0.5,
                    'l2_discrepancy': 1.0,
                    'l2_translator': 0.00,
                    'loss_scale': 10.0,  # Controls the scale of the sqrt loss function
@@ -237,11 +237,11 @@ if __name__ == '__main__':
                    'batch_momentum': 0.95,
                    'batch_size': 128,
                    # Training info
-                   'steps': 60,
+                   'steps': 30,
                    'seed': 137,
                    'restore': False,
                    'restore_model': "model-AAA-final",
-                   'surrogate_model': "model-20200327211709-final",
+                   'surrogate_model': "model-20201020220431-final",
                    # Data parameters
                    'frac_train': 0.8,
                    'frac_test': 0.2,
@@ -271,7 +271,7 @@ if __name__ == '__main__':
                    }
 
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Trying atnn kernel size of 32. Include core. 4 attn filters, half synthetic. LR 3e-4")
+               notes="(trying new surrogate model) Kernel size 32. l2_cnn to 1.0. Include core. 4 attn filters, half synthetic. LR 3e-4")
 
     print("Hyperparameters:")
     for param in hyperparams.items():

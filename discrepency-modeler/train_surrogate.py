@@ -206,13 +206,13 @@ if __name__ == '__main__':
                    # Data paramters
                    'num_batches': 8,  # Number of batches trained in each epoch.
                    # Training info
-                   'steps': 5000,
+                   'steps': 25000,
                    'seed': 0,
-                   'restore': False,
-                   'restore_model': "model-20200327211709-final"
+                   'restore': True,
+                   'restore_model': "model-20200925181506-final"
                    }
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Expanded parameter sweep range compared to 20200327211709 (no cont). Generate sweeps with no flat bits.")
+               notes="Cont on 20200925181506. Expanded parameter sweep range compared to 20200327211709. Generate sweeps with no flat bits.")
 
     print("Hyperparameters:")
     for param in hyperparams.items():

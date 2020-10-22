@@ -104,10 +104,23 @@ class Model:
                                         kernel_size=(1, 1), strides=(1, 1), padding='valid')
             # This soft attention mask is shape (batch_size, 1, 256, 1)
             self.attention_mask = tf.sigmoid(batch_norm(self.attn_flat))
+            # arange = tf.constant(np.arange(0, hyperparams['n_inputs']), shape=[1, 1, 256, 1],
+            #                      dtype=tf.float32)
+            # self.attention_idx = tf.cast(tf.squeeze(tf.reduce_mean(self.attention_idx * arange,
+            #                                                        axis=2)), tf.int32)
+
+            # batch_size = tf.shape(self.attention_idx)[0]
+            # masks = tf.reshape(tf.repeat([[1.0, 0.0]], [batch_size]), [1, 2 * batch_size])
+            # indices = tf.reshape(tf.concat([self.attention_idx, 256 - self.attention_idx], axis=1),
+            #                      [1, 2 * batch_size])
+            # self.attention_mask = tf.reshape(tf.repeat(masks, indices), [batch_size, 256, 1, 1],
+            #                                  name="attention_mask")
+
             self.attention_mask = tf.identity(self.attention_mask /
                                               tf.math.reduce_mean(self.attention_mask, axis=2,
                                                                   keep_dims=True),
                                               name="attention_mask")
+
             # self.attention_mask = tf.nn.softmax(self.attn_flat, axis=2,
             #                                     name="attention_mask")
 
