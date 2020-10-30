@@ -106,7 +106,7 @@ def add_offset(X, hyperparams, epoch=0):
     offset_scale = hyperparams['offset_scale'] * np.ptp(X[:, hyperparams['n_inputs']:], axis=1)
     # Add the current epoch so we get some variety over the entire training run.
     np.random.seed(hyperparams['seed'] + epoch + 54321)
-    offsets = np.random.uniform(-offset_scale, offset_scale)
+    offsets = offset_scale * np.random.uniform(-1.0, 1.0)
     X[:, hyperparams['n_inputs']:] += offsets[:, np.newaxis]
 
     return X
