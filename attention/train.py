@@ -8,13 +8,7 @@ import os
 # os.environ['CUDA_VISIBLE_DEVICES'] = ''
 # os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
-# Custom tools from other directories
-import sys
-sys.path.append('../utilities')
-import preprocess
-import generate
-
-# From the directory
+# From the current directory
 import build
 # import build_analytic  # for the analytical model
 import get_data
@@ -40,16 +34,18 @@ def train(hyperparams):
               step=0)
 
     # Build the model to train.
-    model = build_tf2.Model()
+    model = build.Model()
     # Build the data pipeline
     model.build_data_pipeline(hyperparams, data_mean, data_ptp)
+    model.build_X_switch(hyperparams)
 
     # Build the component that compresses the sweep into some latent space
     # Keep in mind that the values after n_inputs * 2 are the physical parameters.
-    model.build_CNN(hyperparams, model.data_X_train, model.data_X_test)
+    model.build_feature_extractor(hyperparams)
+    model.build_attention_focuser(hyperparams)
 
     # Build the network that translates from the CNN output to the Langmuir sweep model
-    model.build_linear_translator(hyperparams, model.CNN_output)
+    model.build_physics_translator(hyperparams)
 
     vsweep = (model.X[:, 0:hyperparams['n_inputs']] * model.data_ptp[0:hyperparams['n_inputs']] +
               model.data_mean[0:hyperparams['n_inputs']])
@@ -58,29 +54,19 @@ def train(hyperparams):
     surrogate_X = tf.concat([model.phys_input[:, 0:3],  # only provide ne, Vp, and Te
                              vsweep], 1)
     surrogate_path = "./saved_models/" + hyperparams['surrogate_model'] + ".ckpt"
-    surr_import = tf.compat.v1.train.import_meta_graph("./saved_models/" + hyperparams['surrogate_model'] +
-                                             ".ckpt.meta",
-                                             input_map={"data/X": surrogate_X},
-                                             import_scope="surrogate")
+    surr_import = tf.compat.v1.train.import_meta_graph("./saved_models/" +
+                                                       hyperparams['surrogate_model'] +
+                                                       ".ckpt.meta",
+                                                       input_map={"data/X": surrogate_X},
+                                                       import_scope="surrogate")
     surr_output = tf.compat.v1.get_default_graph().get_tensor_by_name("surrogate/nn/output:0")
-    # Scalefactor from the surrogate model is ne, Vp, Te, and vsweep
-    surr_scalefactor = tf.compat.v1.get_default_graph().get_tensor_by_name("surrogate/const/scalefactor:0")
-
-    # Build the monoenergetic primary electron model
-    # monoenergetic_scalefactor = tf.constant([1e-14, 1 / 5.0])
-    # scalefactor = tf.concat([surr_scalefactor, monoenergetic_scalefactor], 0)
-    scalefactor = surr_scalefactor
-    # model.build_monoenergetic_electron_model(hyperparams, model.phys_input,
-    #                                          vsweep, scalefactor)
+    # Scalefactor from the surrogate model is for ne, Vp, Te, and vsweep (in that order)
+    scalefactor = tf.compat.v1.get_default_graph().get_tensor_by_name("surrogate/const/scalefactor:0")
 
     # So we can get the physical plasma parameters out from the model.
-    # model.build_plasma_info(scalefactor)
     model.build_plasma_info(scalefactor)
     # Process the curve coming out of the sweep model.
-    model.build_theory_processor(hyperparams, surr_output,  # + model.monoenergetic_output,
-                                 stop_gradient=False)
-    # Instead learn the discrepancy from the CNN output (not on the difference).
-    # model.build_learned_discrepancy_model(hyperparams, model.CNN_output)
+    model.build_surrogate_output_normalizer(hyperparams, surr_output)
 
     # Remove surrogate model from the list of trainable variables (to pass in to the optimizer)
     training_vars = tf.compat.v1.trainable_variables()
@@ -88,11 +74,8 @@ def train(hyperparams):
     for var in removelist:
         training_vars.remove(var)
     model.vars = training_vars
-    # Calculate all the losses (full curve, theory fit, discrepancy size, regularization, physics)
-    model.build_loss(hyperparams, model.X[:, hyperparams['n_inputs']:],
-                     model.processed_theory,
-                     0.0,  # model.discrepancy_output,
-                     model.X_phys, scalefactor)
+    # Calculate all the losses
+    model.build_loss(hyperparams, scalefactor)
 
     # Log values of gradients and variables for tensorboard.
     for grad, var in model.grads:
@@ -212,22 +195,20 @@ if __name__ == '__main__':
                    # 'size_l1': 50,
                    # 'size_l2': 50,
                    # 'size_trans': 50,
-                   'attn_filters': 4,
+                   'attn_filters': 16,
                    'feat_filters': 8,
-                   'filters': 32,
+                   'filters': 8,
                    'size_diff': 64,
                    'n_output': 256,
-                   # Loss scaling weights (rebuilt, theory, and discrepancy are normalized)
+                   # Loss scaling weights
                    'loss_rebuilt': 6.0,  # 2 Controls the influence of the rebuilt curve
-                   # 'loss_theory': 0.00,  # 0.01 Controls how tightly the theory must fit the original
-                   # 'loss_discrepancy': 0.0,  # 0.001 Controls how small the discrepancy must be
-                   'loss_physics': 2.0,  # Not included in norm. Loss weight of phys params.
-                   'loss_phys_penalty': 0.0,  # Penalize size of physical params
+                   'loss_physics': 6.0,  # Not included in norm. Loss weight of phys params.
+                   # 'loss_phys_penalty': 0.0,  # Penalize size of physical params
                    'l1_CNN_output': 0.0,  # l1 on output of CNN
-                   'l2_CNN': 0.05,
+                   'l2_CNN': 1e-5,
                    'l2_discrepancy': 1.0,
                    'l2_translator': 0.00,
-                   'loss_scale': 10.0,  # Controls the scale of the sqrt loss function
+                   # 'loss_scale': 10.0,  # Controls the scale of the sqrt loss function
                    # Optimization hyperparamters
                    'learning_rate': 3e-4,
                    # 'momentum': 0.99,
@@ -237,45 +218,47 @@ if __name__ == '__main__':
                    'batch_momentum': 0.95,
                    'batch_size': 128,
                    # Training info
-                   'steps': 60,
+                   'steps': 30,
                    'seed': 137,
                    'restore': False,
                    'restore_model': "model-AAA-final",
-                   'surrogate_model': "model-20200327211709-final",
+                   'surrogate_model': "model-20201026164454-final",
                    # Data parameters
                    'frac_train': 0.8,
                    'frac_test': 0.2,
                    'datasets': ['mirror1',
-                                'mirror2',
-                                'mirror3',
-                                'mirror4',
+                                # 'mirror2',
+                                # 'mirror3',
+                                # 'mirror4',
                                 # 'mirror5',  # set aside for validation
-                                'edge1',
-                                'edge2',
-                                'core',
-                                'walt1',
-                                'mirror1_avg',
-                                'mirror2_avg',
-                                'mirror3_avg',
-                                'mirror4_avg',
+                                # 'edge1',
+                                # 'edge2',
+                                # 'core',
+                                # 'walt1',
+                                # 'mirror1_avg',
+                                # 'mirror2_avg',
+                                # 'mirror3_avg',
+                                # 'mirror4_avg',
                                 # 'mirror5_avg',  # set aside for validation
-                                'edge1_avg',
-                                'edge2_avg',
-                                'core_avg',
+                                # 'edge1_avg',
+                                # 'edge2_avg',
+                                # 'core_avg',
                                 'walt1_avg'],
-                   'datasets_synthetic': ['15-18_-50-40_0-1-12_-120-100_corrupt-esat_0-5-2'],
+                   'datasets_synthetic': ['15-18_-50-40_0-1-12_-120-100_corrupt-esat_0-5-5_normed_w-rootfunc-v2'],
                    'num_examples': 1 * 2 ** 16,  # Examples from each dataset (use all if # too large)
-                   'num_synthetic_examples': int(1.0 * 2 ** 15),  # See comment above
+                   'num_synthetic_examples': 0 * int(1.0 * 2 ** 12),  # See comment above
                    'offset_scale': 0.0,
-                   'noise_scale': 0.03
+                   'noise_scale': 0.2
                    }
-
+    notes = "Test of new code"
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
-               notes="Trying atnn kernel size of 32. Include core. 4 attn filters, half synthetic. LR 3e-4")
+               notes=notes)
 
     print("Hyperparameters:")
     for param in hyperparams.items():
         print("{}: {}".format(param[0], param[1]))
+    print("\n")
+    print(notes)
     print("\n")
 
     train(hyperparams)
