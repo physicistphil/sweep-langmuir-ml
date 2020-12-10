@@ -19,7 +19,7 @@ class Model:
                                                        hyperparams['n_phys_inputs']])
 
             # Keep mean and ptp of the data in the graph so they can be accessed outside
-            #   of the model. We use this so that the error can be 
+            #   of the model. We use this so that the error can be
             self.data_mean = tf.constant(data_mean, dtype=np.float32, name="data_mean")
             self.data_ptp = tf.constant(data_ptp, dtype=np.float32, name="data_ptp")
             # self.dataset = tf.data.Dataset.from_tensor_slices(self.data_input_sliced)
@@ -197,6 +197,22 @@ class Model:
             # This gets passed off to the surrogate model
             self.phys_input = dense_layer(self.CNN_output, n_phys_inputs, name="phys_input")
 
+    # Build classification portion of the model
+    def build_classifier(self, hyperparams):
+        dense_layer = partial(tf.compat.v1.layers.dense,
+                              kernel_initializer=tf.compat.v1.keras.initializers
+                              .VarianceScaling(scale=2.0, seed=hyperparams['seed']),
+                              kernel_regularizer=tf.keras.regularizers
+                              .l2(0.5 * (hyperparams['l2_classifier'])))
+        with tf.compat.v1.variable_scope("class"):
+            width = hyperparams['class_width']
+            self.layer_class0 = dense_layer(self.attention_glimpse[:, 0, :, 0], width,
+                                            activation=tf.nn.elu)
+            self.layer_class1 = dense_layer(self.layer_class0, width, activation=tf.nn.elu)
+            self.layer_class2 = dense_layer(self.layer_class1, width, activation=tf.nn.elu)
+            self.layer_class3 = dense_layer(self.layer_class2, 1, activation=tf.nn.elu)
+            self.class_estimate = tf.nn.sigmoid(self.layer_class3, name="class_estimate")
+
     # Needed to put this in its own function because of needing to import the surrogate model
     #   meta graph after building the translator so we can get the scalefactor. Keeps things
     #   cleaner this way, hopefully.
@@ -223,31 +239,58 @@ class Model:
     #   L1 of CNN output to, encourage sparsity (usually set to just 0), and regularization losses.
     def build_loss(self, hyperparams, scalefactor):
         with tf.compat.v1.variable_scope("loss"):
+            n_flag_inputs = hyperparams['n_flag_inputs']
+            n_phys_inputs = hyperparams['n_phys_inputs']
+
             self.X_I = self.X[:, hyperparams['n_inputs']:]
             # For backwards compatibility ._. (keeping tensor names the same)
             self.model_output = tf.identity(self.theory_output_normed, name="model_output")
 
             # L2 loss on the plasma parmaeters if they are given
-            #   (set by the first X_phys ouput flag).
+            #   (set by the first X_phys component which is the "is synthetic" flag).
+            # Multiply the first flag (=1 if synthetic, 0 if not so we don't
+            #   try to fit physics paramters for sweeps without already known physical parameters.
+            # Multiply by NOT second component of X_phys (flag for bad sweeps -- we never want to
+            #   try to fit the physical parameters for a bad sweep).
+            # Don't specifiy the end of the slice for X_phys[:, n_flag_inputs:]
+            #   because it should all just be the physical parameters after the flag inputs.
             self.loss_physics = (hyperparams['loss_physics'] * 0.5 *
-                                 tf.reduce_sum(input_tensor=tf.expand_dims(self.X_phys[:, 0], 1) *
-                                               (self.X_phys[:, 1:4] *
-                                                scalefactor[0:3] - self.phys_input[:, 0:3]) ** 2))
+                                 tf.reduce_sum(input_tensor=self.X_phys[:, 0:1] *
+                                               (1.0 - self.X_phys[:, 1:2]) *
+                                               (self.X_phys[:, n_flag_inputs:] * scalefactor[0:3] -
+                                                self.phys_input[:, 0:n_phys_inputs]) ** 2))
 
             # L1 on CNN output for sparsity (I usally just set this to 0 but if you want to try...).
             self.l1_CNN_output = (hyperparams['l1_CNN_output'] *
                                   tf.reduce_sum(input_tensor=tf.math.abs(self.CNN_output)))
 
-            # Penalize errors in the rebuilt current trace.
+            # Penalize errors in the rebuilt current trace. But! If the sweeps is classified
+            #   as bad, don't penalize the reconstruction -- instead we give it a constant error
+            #   for that sweep.
             self.loss_rebuilt = (tf.reduce_sum(input_tensor=(self.X_I - self.model_output) ** 2 *
-                                               self.attention_mask[:, 0, :, 0],
+                                               self.attention_mask[:, 0, :, 0],# * 
+                                               # (1.0 - self.class_estimate),
                                                name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'])
+
+            # Loss for accurately classifying sweeps.
+            misclass_error = (- (self.X_phys[:, 1:2] * tf.math.log(self.class_estimate)) -
+                              (1 - self.X_phys[:, 1:2]) * tf.math.log(1 - self.class_estimate))
+            self.loss_misclass = (tf.reduce_sum(input_tensor=(misclass_error
+                                                              )) * hyperparams['loss_misclass'])
+
+            # Constant penalty for thinking it's a bad sweep (and it's not labeled as a bad one --
+            #   but it could still be bad).
+            self.loss_bad_penalty = tf.reduce_sum(input_tensor=((1 - self.X_phys[:, 1:2]) *
+                                                                self.class_estimate *
+                                                                hyperparams['loss_bad_penalty']))
 
             # Divide model loss by batch size to keep loss consistent regardless of input size.
             self.loss_model = ((self.loss_rebuilt +
                                 # self.attention_loss +
                                 self.loss_physics +
+                                # self.loss_misclass +
+                                # self.loss_bad_penalty +
                                 self.l1_CNN_output) /
                                tf.cast(tf.shape(input=self.model_output)[0], tf.float32))
             self.loss_reg = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.REGULARIZATION_LOSSES)
@@ -280,12 +323,14 @@ class Model:
     #   the main way I judge the performance of the model -- I've found that loss alone
     #   is insufficient.
     def plot_comparison(self, sess, hyperparams, save_path, epoch):
-        (model_output, theory_output, phys_numbers, data_mean, data_ptp, data_input, attn_mask
+        (model_output, theory_output, phys_numbers, data_mean, data_ptp, data_input,
+         attn_mask, badness
          ) = sess.run([self.model_output, self.theory_output_normed, self.plasma_info,
                        self.data_mean[hyperparams['n_inputs']:],
                        self.data_ptp[hyperparams['n_inputs']:],
                        self.X,
-                       self.attention_mask],
+                       self.attention_mask,
+                       self.class_estimate],
                       feed_dict={self.training: False})
 
         batch_size = theory_output.shape[0]
@@ -319,7 +364,8 @@ class Model:
                             fontsize=6)
             # Print the maximum attention value (useful for evaluating the attention portion).
             axes[x, y].text(0.6, 0.05,
-                            "attn max: {:.3f}".format(np.max(attn_mask[randidx[x, y], 0, :, 0])),
+                            "attn max: {:.3f}".format(np.max(attn_mask[randidx[x, y], 0, :, 0])) +
+                            "\nbadness: {:.3f}".format(badness[randidx[x, y], 0]),
                             transform=axes[x, y].transAxes, fontsize=6)
             # Display a heatmap of the attention values on the plot.
             mask_color = np.ones((attn_mask[randidx[x, y]].shape[1], 4))

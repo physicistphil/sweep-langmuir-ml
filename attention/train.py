@@ -82,6 +82,10 @@ def train(hyperparams):
     for var in removelist:
         training_vars.remove(var)
     model.vars = training_vars
+
+    # Build the classification portion of the model.
+    model.build_classifier(hyperparams)
+
     # Calculate the loss for our model
     model.build_loss(hyperparams, scalefactor)
 
@@ -148,7 +152,7 @@ def train(hyperparams):
             print("\r", end="")
 
             # Every 10th epoch (or last epoch), calculate testing loss and save the model.
-            if epoch % 10 == 0 or epoch == hyperparams['steps'] - 1:
+            if True: #epoch % 10 == 0 or epoch == hyperparams['steps'] - 1:
                 # Write summaries.
                 try:
                     summary = sess.run(summaries_op, feed_dict={model.training: False})
@@ -207,21 +211,26 @@ if __name__ == '__main__':
                    #   This is used for the synthetic dataset, telling the model that it has
                    #   physical parameters (value = 1) that it can use in the loss function.
                    #   Real datasets have a value of 0.
-                   'n_flag_inputs': 1,
+                   # The other flag is used for labeling bad sweeps. 1=bad, 0=good.
+                   'n_flag_inputs': 2,
                    'n_phys_inputs': 3,  # n_e, V_p and T_e (for now).
                    # CNN parameters.
                    'attn_filters': 16,  # Number of filters used in the attention portion.
                    'feat_filters': 8,  # Number of filters used in the feature extractor.
                    'filters': 8,  # Number of filters used in the translator portion.
+                   'class_width': 16,
                    # Loss weights.
                    'loss_rebuilt': 6.0,  # Controls the influence of the rebuilt curve error.
                    'loss_physics': 6.0,  # Strength of phys param matching for synthetic sweeps.
+                   'loss_misclass': 0.0,
+                   'loss_bad_penalty': 0.0,
                    'l1_CNN_output': 0.0,  # L1 on output of CNN (phys_input).
-                   'l2_CNN': 1e-5,  # L2 regularization on CNNs in the model.
+                   'l2_CNN': 1e-4,  # L2 regularization on CNNs in the model.
                    'l2_discrepancy': 1.0,
                    'l2_translator': 0.00,  # L2 regularization on the FFNN portion of translator.
+                   'l2_classifier': 0.00,
                    # Optimization hyperparamters for the adam optimizer
-                   'learning_rate': 3e-4,
+                   'learning_rate': 1e-5,
                    'beta1': 0.9,
                    'beta2': 0.999,
                    'epsilon': 1e-8,
@@ -238,36 +247,40 @@ if __name__ == '__main__':
                    'frac_train': 0.8,  # Fraction of data to train on.
                    'frac_test': 0.2,  # Fraction of data to test on.
                    'datasets': ['mirror1',  # Real / experiment datasets to train on.
-                                # 'mirror2',
-                                # 'mirror3',
-                                # 'mirror4',
+                                'mirror2',
+                                'mirror3',
+                                'mirror4',
                                 # 'mirror5',  # set aside for validation
-                                # 'edge1',
-                                # 'edge2',
-                                # 'core',
-                                # 'walt1',
-                                # 'mirror1_avg',
-                                # 'mirror2_avg',
-                                # 'mirror3_avg',
-                                # 'mirror4_avg',
+                                'edge1',
+                                'edge2',
+                                'core',
+                                'walt1',
+                                'mirror1_avg',
+                                'mirror2_avg',
+                                'mirror3_avg',
+                                'mirror4_avg',
                                 # 'mirror5_avg',  # set aside for validation
-                                # 'edge1_avg',
-                                # 'edge2_avg',
-                                # 'core_avg',
+                                'edge1_avg',
+                                'edge2_avg',
+                                'core_avg',
                                 'walt1_avg'],
                    # Which synthetic dataset(s) to use.
                    'datasets_synthetic': ['15-18_-50-40_0-1-12_-120-100_corrupt-esat_0-5-5_normed_w-rootfunc-v2'],
+                   # Which bad datasets to use (for the classification portion).
+                   'datasets_bad': ['data_synthetic/bad_sweeps_01'],
                    # Examples to use from _each_ dataset (use all in dataset if # too large).
-                   'num_examples': 1 * 2 ** 16,
+                   'num_examples': 1 * 2 ** 15,  # 15, 17, 15
                    # Examples to use from _each_ dataset (use all in dataset if # too large)
-                   'num_synthetic_examples': 0 * int(1.0 * 2 ** 12),
+                   'num_synthetic_examples': 1 * int(1.5 * 2 ** 17),
+                   # Examples to use from the bad examples dataset
+                   'num_bad_examples': 2 ** 17,
                    # The scale of the random offset applied to the synthetic data.
                    'offset_scale': 0.0,
                    # Scale of noise applied to synthetic data. 1.0 =  1x the height of an exmaple.
-                   'noise_scale': 0.2
+                   'noise_scale': 0.07
                    }
     # Notes for the training run that show up on wandb.
-    notes = "Test of new code"
+    notes = "First tests with badness classifier (measuring things...)"
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
                notes=notes)
     # Print hyperparameters and notes so they show up in the terminal.
