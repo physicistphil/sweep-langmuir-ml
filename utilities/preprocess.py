@@ -120,7 +120,8 @@ def add_noise(X, hyperparams, epoch=0):
     noise = np.random.normal(np.zeros((X.shape[0], hyperparams['n_inputs'])),
                              np.repeat(noise_scale[:, np.newaxis], hyperparams['n_inputs'], axis=1),
                              (X.shape[0], hyperparams['n_inputs']))
-    X[:, hyperparams['n_inputs']:] += noise
+    random_scaling = np.random.uniform(0.0, 1.0, size=(X.shape[0], 1))
+    X[:, hyperparams['n_inputs']:] += noise * random_scaling
 
     return X
 
