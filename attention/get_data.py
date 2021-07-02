@@ -29,6 +29,8 @@ def sample_datasets(hyperparams):
             np.random.shuffle(temp_data)
             temp_data = temp_data[0:temp_data.shape[0] if num_examples > temp_data.shape[0]
                                   else num_examples]
+            # Remove offsets
+            temp_data[:, 256:512] -= np.mean(temp_data[:, 256:256 + 32], axis=1, keepdims=True)
             sweeps.append(temp_data)
 
         sweeps = np.concatenate(sweeps, axis=0)
@@ -80,7 +82,9 @@ def sample_datasets(hyperparams):
             temp_data = temp_data[0:temp_data.shape[0]
                                   if num_bad_examples > temp_data.shape[0]
                                   else num_bad_examples]
-            # No need to add noise or offsets here because, well, these are bad sweeps.
+            temp_data[:, 0:n_inputs * 2] = preprocess.add_offset(temp_data[:, 0:n_inputs * 2],
+                                                                 hyperparams, epoch=0)
+            # No need to add noise here because, well, these are bad sweeps.
             sweeps_bad.append(temp_data)
         # Make the list into a single numpy array.
         sweeps_bad = np.concatenate(sweeps_bad, axis=0)
