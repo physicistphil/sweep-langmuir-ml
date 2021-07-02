@@ -152,7 +152,7 @@ def train(hyperparams):
             print("\r", end="")
 
             # Every 10th epoch (or last epoch), calculate testing loss and save the model.
-            if True: #epoch % 10 == 0 or epoch == hyperparams['steps'] - 1:
+            if epoch % 10 == 0 or epoch == hyperparams['steps'] - 1:
                 # Write summaries.
                 try:
                     summary = sess.run(summaries_op, feed_dict={model.training: False})
@@ -222,15 +222,15 @@ if __name__ == '__main__':
                    # Loss weights.
                    'loss_rebuilt': 6.0,  # Controls the influence of the rebuilt curve error.
                    'loss_physics': 6.0,  # Strength of phys param matching for synthetic sweeps.
-                   'loss_misclass': 0.0,
-                   'loss_bad_penalty': 0.0,
+                   'loss_misclass': 6.0,
+                   'loss_bad_penalty': 48.0,
                    'l1_CNN_output': 0.0,  # L1 on output of CNN (phys_input).
                    'l2_CNN': 1e-4,  # L2 regularization on CNNs in the model.
                    'l2_discrepancy': 1.0,
                    'l2_translator': 0.00,  # L2 regularization on the FFNN portion of translator.
                    'l2_classifier': 0.00,
                    # Optimization hyperparamters for the adam optimizer
-                   'learning_rate': 1e-5,
+                   'learning_rate': 3e-4,
                    'beta1': 0.9,
                    'beta2': 0.999,
                    'epsilon': 1e-8,
@@ -238,7 +238,7 @@ if __name__ == '__main__':
                    'batch_momentum': 0.95,  # Momentum used in batch normalization calculation.
                    'batch_size': 128,  # 128 seems optimal.
                    # Training info.
-                   'steps': 30,
+                   'steps': 60,
                    'seed': 137,
                    'restore': False,  # Controls if we restore on an existing model.
                    'restore_model': "model-AAA-final",  # Which model to restore on.
@@ -263,11 +263,12 @@ if __name__ == '__main__':
                                 'edge1_avg',
                                 'edge2_avg',
                                 'core_avg',
-                                'walt1_avg'],
+                                'walt1_avg',
+                                'smpd_01_xy'],
                    # Which synthetic dataset(s) to use.
                    'datasets_synthetic': ['15-18_-50-40_0-1-12_-120-100_corrupt-esat_0-5-5_normed_w-rootfunc-v2'],
                    # Which bad datasets to use (for the classification portion).
-                   'datasets_bad': ['data_synthetic/bad_sweeps_01'],
+                   'datasets_bad': ['data_synthetic/bad_sweeps_03_x1-7'],
                    # Examples to use from _each_ dataset (use all in dataset if # too large).
                    'num_examples': 1 * 2 ** 15,  # 15, 17, 15
                    # Examples to use from _each_ dataset (use all in dataset if # too large)
@@ -280,7 +281,7 @@ if __name__ == '__main__':
                    'noise_scale': 0.07
                    }
     # Notes for the training run that show up on wandb.
-    notes = "First tests with badness classifier (measuring things...)"
+    notes = "Trying with kamil data, better bad sweeps v3. Loss bad penalty test (penalty=48). Scaling rebuilt loss by sweep std. With classifier (loss = 6)"
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
                notes=notes)
     # Print hyperparameters and notes so they show up in the terminal.

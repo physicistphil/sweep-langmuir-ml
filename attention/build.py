@@ -190,7 +190,13 @@ class Model:
         n_phys_inputs = hyperparams['n_phys_inputs']
         with tf.compat.v1.variable_scope("trans"):
             # This is the learned offset for the sweep to be applied to theory curves.
-            self.layer_offset = dense_layer(self.CNN_output, 1, name="layer_offset") / 1000.0
+            # self.layer_offset0 = dense_layer(self.CNN_output, 16, name="layer_offset0",
+                                             # activation=tf.nn.elu)
+            # self.layer_offset1 = dense_layer(self.layer_offset0, 16, name="layer_offset1",
+            #                                  activation=tf.nn.elu)
+            # self.layer_offset2 = dense_layer(self.layer_offset1, 16, name="layer_offset2",
+            #                                  activation=tf.nn.elu)
+            # self.layer_offset = dense_layer(self.layer_offset0, 1, name="layer_offset")
             # Divided by 1000 to make it easier to learn. We're learning small offsets and default
             #   values are much larger (this is essentially a somewhat manual initialization).
 
@@ -230,7 +236,7 @@ class Model:
         self.theory_output_normed = ((theory_output - self.data_mean[hyperparams['n_inputs']:]) /
                                      self.data_ptp[hyperparams['n_inputs']:])
         # Add the learned sweep offset
-        self.theory_output_normed = tf.identity(self.theory_output_normed + self.layer_offset,
+        self.theory_output_normed = tf.identity(self.theory_output_normed,  # + self.layer_offset,
                                                 name="theory_output_normed")
 
     # Construct the loss. The main components are: L2 error of model output to input sweeps only
@@ -241,6 +247,8 @@ class Model:
         with tf.compat.v1.variable_scope("loss"):
             n_flag_inputs = hyperparams['n_flag_inputs']
             n_phys_inputs = hyperparams['n_phys_inputs']
+            is_synth_flag = self.X_phys[:, 0:1]
+            is_bad_flag = self.X_phys[:, 1:2]
 
             self.X_I = self.X[:, hyperparams['n_inputs']:]
             # For backwards compatibility ._. (keeping tensor names the same)
@@ -251,12 +259,12 @@ class Model:
             # Multiply the first flag (=1 if synthetic, 0 if not so we don't
             #   try to fit physics paramters for sweeps without already known physical parameters.
             # Multiply by NOT second component of X_phys (flag for bad sweeps -- we never want to
-            #   try to fit the physical parameters for a bad sweep).
+            #   try to fit the physical parameters for a bad sweep). (this isn't true anymore)
             # Don't specifiy the end of the slice for X_phys[:, n_flag_inputs:]
             #   because it should all just be the physical parameters after the flag inputs.
             self.loss_physics = (hyperparams['loss_physics'] * 0.5 *
-                                 tf.reduce_sum(input_tensor=self.X_phys[:, 0:1] *
-                                               (1.0 - self.X_phys[:, 1:2]) *
+                                 tf.reduce_sum(input_tensor=is_synth_flag *
+                                               # (1.0 - is_bad_flag) *
                                                (self.X_phys[:, n_flag_inputs:] * scalefactor[0:3] -
                                                 self.phys_input[:, 0:n_phys_inputs]) ** 2))
 
@@ -268,28 +276,31 @@ class Model:
             #   as bad, don't penalize the reconstruction -- instead we give it a constant error
             #   for that sweep.
             self.loss_rebuilt = (tf.reduce_sum(input_tensor=(self.X_I - self.model_output) ** 2 *
-                                               self.attention_mask[:, 0, :, 0],# * 
-                                               # (1.0 - self.class_estimate),
+                                               self.attention_mask[:, 0, :, 0] /
+                                               tf.math.reduce_std(self.X_I, axis=1, keepdims=True) * 
+                                               (1.0 - self.class_estimate),
                                                name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'])
 
-            # Loss for accurately classifying sweeps.
-            misclass_error = (- (self.X_phys[:, 1:2] * tf.math.log(self.class_estimate)) -
-                              (1 - self.X_phys[:, 1:2]) * tf.math.log(1 - self.class_estimate))
-            self.loss_misclass = (tf.reduce_sum(input_tensor=(misclass_error
+            # Loss for accurately classifying sweeps for labeled sweeps (synthetic) only.
+            epsilon = 1e-4  # So that the log / gradients don't blow up.
+            misclass_error = (- (is_bad_flag * tf.math.log(self.class_estimate + epsilon)) -
+                              (1 - is_bad_flag) * tf.math.log(1 - self.class_estimate + epsilon))
+            self.loss_misclass = (tf.reduce_sum(input_tensor=(misclass_error *
+                                                              is_synth_flag
                                                               )) * hyperparams['loss_misclass'])
 
             # Constant penalty for thinking it's a bad sweep (and it's not labeled as a bad one --
             #   but it could still be bad).
-            self.loss_bad_penalty = tf.reduce_sum(input_tensor=((1 - self.X_phys[:, 1:2]) *
-                                                                self.class_estimate *
+            self.loss_bad_penalty = tf.reduce_sum(input_tensor=((1 - is_bad_flag) *
+                                                                self.class_estimate * tf.math.reduce_std(self.X_I, axis=1, keepdims=True) *
                                                                 hyperparams['loss_bad_penalty']))
 
             # Divide model loss by batch size to keep loss consistent regardless of input size.
             self.loss_model = ((self.loss_rebuilt +
                                 # self.attention_loss +
                                 self.loss_physics +
-                                # self.loss_misclass +
+                                self.loss_misclass +
                                 # self.loss_bad_penalty +
                                 self.l1_CNN_output) /
                                tf.cast(tf.shape(input=self.model_output)[0], tf.float32))
@@ -311,6 +322,12 @@ class Model:
             # self.opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(self.opt)
             self.grads = self.opt.compute_gradients(self.loss_total, var_list=self.vars)
             self.training_op = self.opt.apply_gradients(self.grads)
+
+            # grads, pvars = zip(*self.opt.compute_gradients(self.loss_total,
+            #                                                var_list=self.vars))
+            # grads, _ = tf.clip_by_global_norm(grads, 10.0)
+            # self.training_op = self.opt.apply_gradients(zip(grads, pvars))
+            # self.grads = zip(grads, pvars)
 
     # Load in a saved model. It needs to be exactly the same as the one constructed by the class.
     #   I have yet to incorporate a general loading mechanism.
