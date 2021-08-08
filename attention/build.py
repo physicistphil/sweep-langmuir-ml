@@ -12,18 +12,18 @@ class Model:
             self.data_train = tf.compat.v1.placeholder(tf.float32,
                                                        [None, hyperparams['n_inputs'] * 2 +
                                                         hyperparams['n_flag_inputs'] +
-                                                        hyperparams['n_phys_inputs']])
+                                                        hyperparams['n_phys_inputs'] + 3])
             self.data_test = tf.compat.v1.placeholder(tf.float32,
                                                       [None, hyperparams['n_inputs'] * 2 +
                                                        hyperparams['n_flag_inputs'] +
-                                                       hyperparams['n_phys_inputs']])
+                                                       hyperparams['n_phys_inputs'] + 3])
 
             # Keep mean and ptp of the data in the graph so they can be accessed outside
-            #   of the model. We use this so that the error can be
+            #   of the model when applied to new sweeps we want to analyze.
             self.data_mean = tf.constant(data_mean, dtype=np.float32, name="data_mean")
             self.data_ptp = tf.constant(data_ptp, dtype=np.float32, name="data_ptp")
-            # self.dataset = tf.data.Dataset.from_tensor_slices(self.data_input_sliced)
 
+            # Split dataset into batches, repeat forever, and preload onto the GPU.
             self.dataset_train = tf.data.Dataset.from_tensor_slices(self.data_train)
             self.dataset_train = self.dataset_train.batch(hyperparams['batch_size'])
             self.dataset_train = self.dataset_train.repeat()
@@ -36,23 +36,35 @@ class Model:
             self.dataset_test = self.dataset_test.prefetch(tf.data.experimental.AUTOTUNE)
             self.data_test_iter = tf.compat.v1.data.make_initializable_iterator(self.dataset_test)
 
-            # This is a semi-supervised approach so splitting between features X and labels y
-            #   doesn't really make much sense (real examples don't have labels, synthetic do).
             self.data_X_train = self.data_train_iter.get_next()
             self.data_X_test = self.data_test_iter.get_next()
 
+    # Build the switching mechanism between train and test sets and split the data into various
+    #   components useful for training.
     def build_X_switch(self, hyperparams):
         with tf.compat.v1.variable_scope("data"):
+            # Switch between the train and test datasets.
             self.training = tf.compat.v1.placeholder_with_default(False, shape=(), name="training")
             self.X = tf.cond(pred=self.training, true_fn=lambda: self.data_X_train,
                              false_fn=lambda: self.data_X_test)
-            self.X_phys = tf.identity(self.X[:, hyperparams['n_inputs'] * 2:], name="X_phys")
+            # The label of where the attention mechanism should focus on (provided for manually
+            #   labeled sweeps).
+            self.X_attn_label = tf.identity(self.X[:, (512 + 4):])
+            # The physics labels provided by synthetic sweeps (though real data may have this,
+            #   but none of my data does).
+            self.X_phys = tf.identity(self.X[:, hyperparams['n_inputs'] * 2:512 + 4], name="X_phys")
+            # The voltage sweep (0-255) and the current (256-511)
             self.X = tf.identity(self.X[:, 0:hyperparams['n_inputs'] * 2], name="X")
+            # Useful for getting the batch size.
             self.X_shape = tf.shape(input=self.X)
-
-            # X needs to be 4d for input into convolution layers
+            # X needs to be 4d for input into convolution layers. Layer the voltage sweep on top
+            #   of the current sweep so that the V-I relationship is spatially related.
             self.X_reshaped = tf.reshape(self.X, [-1, 2, hyperparams['n_inputs'], 1])
 
+    # Build the network that extracts features from the sweeps (the attention mask comes later).
+    # This CNN extracts features from the input (stacked) voltage and current curves. We need
+        #   to extract the features before applying the attention mask. If there was no feature
+        #   extraction, each part of the sweep would be weighted, distorting the sweep.
     def build_feature_extractor(self, hyperparams):
         conv_layer = partial(tf.compat.v1.layers.conv2d, activation=None,
                              kernel_initializer=tf.compat.v1.keras.initializers
@@ -61,13 +73,10 @@ class Model:
                              .l2(0.5 * (hyperparams['l2_CNN'])),
                              )
 
+        # Batch norm doesn't seem to help much.
         # batch_norm = partial(tf.compat.v1.layers.batch_normalization, training=self.training,
         #                      momentum=hyperparams['batch_momentum'], renorm=True)
 
-        # This CNN extracts features from the input (stacked) voltage and current curves. We need
-        #   to extract the features before applying the attention mask. If there was no feature
-        #   extraction, each part of the sweep would be weighted, disorting the sweep. That's the
-        #   idea at least -- I haven't verified that it actually works.
         feat_filters = hyperparams['feat_filters']
         with tf.compat.v1.variable_scope("feat"):
             # First layer looks at a portion of the vsweep, current. This portion is then passed
@@ -90,7 +99,7 @@ class Model:
     # CNN to build the attention mask. This chooses which portions of the sweep to focus on.
     #   The features extracted from the sweeps are multiplied by this mask and passed on to the
     #   translator. The error for each part of the sweep is also multiplied by this mask, so
-    #   that portions that are not important / selected do not factor into the loss.
+    #   that portions that are not important / selected do not factor into the fitting loss.
     def build_attention_focuser(self, hyperparams):
         conv_layer = partial(tf.compat.v1.layers.conv2d, activation=None,
                              kernel_initializer=tf.compat.v1.keras.initializers
@@ -139,7 +148,7 @@ class Model:
 
     # Translate from the attention glimpse to physical parameters to calculate a theoretical
     #   Langmuir sweep. The attention glimpse is likely not in a useful / understandable
-    #   representation, requiring a nonlinear transformation to physics space.
+    #   representation, requiring a nonlinear transformation to physical quantities.
     def build_physics_translator(self, hyperparams):
         conv_layer = partial(tf.compat.v1.layers.conv2d, activation=None,
                              kernel_initializer=tf.compat.v1.keras.initializers
@@ -185,39 +194,10 @@ class Model:
 
         # Finish up the translation component with linear NN layers (not necessary, but common in
         #   ML models).
-        # Also learn the vertical sweep offset which assumes zero ion saturation current.This
-        #   may / should be removed in the future.
         n_phys_inputs = hyperparams['n_phys_inputs']
         with tf.compat.v1.variable_scope("trans"):
-            # This is the learned offset for the sweep to be applied to theory curves.
-            # self.layer_offset0 = dense_layer(self.CNN_output, 16, name="layer_offset0",
-                                             # activation=tf.nn.elu)
-            # self.layer_offset1 = dense_layer(self.layer_offset0, 16, name="layer_offset1",
-            #                                  activation=tf.nn.elu)
-            # self.layer_offset2 = dense_layer(self.layer_offset1, 16, name="layer_offset2",
-            #                                  activation=tf.nn.elu)
-            # self.layer_offset = dense_layer(self.layer_offset0, 1, name="layer_offset")
-            # Divided by 1000 to make it easier to learn. We're learning small offsets and default
-            #   values are much larger (this is essentially a somewhat manual initialization).
-
             # This gets passed off to the surrogate model
             self.phys_input = dense_layer(self.CNN_output, n_phys_inputs, name="phys_input")
-
-    # Build classification portion of the model
-    def build_classifier(self, hyperparams):
-        dense_layer = partial(tf.compat.v1.layers.dense,
-                              kernel_initializer=tf.compat.v1.keras.initializers
-                              .VarianceScaling(scale=2.0, seed=hyperparams['seed']),
-                              kernel_regularizer=tf.keras.regularizers
-                              .l2(0.5 * (hyperparams['l2_classifier'])))
-        with tf.compat.v1.variable_scope("class"):
-            width = hyperparams['class_width']
-            self.layer_class0 = dense_layer(self.attention_glimpse[:, 0, :, 0], width,
-                                            activation=tf.nn.elu)
-            self.layer_class1 = dense_layer(self.layer_class0, width, activation=tf.nn.elu)
-            self.layer_class2 = dense_layer(self.layer_class1, width, activation=tf.nn.elu)
-            self.layer_class3 = dense_layer(self.layer_class2, 1, activation=tf.nn.elu)
-            self.class_estimate = tf.nn.sigmoid(self.layer_class3, name="class_estimate")
 
     # Needed to put this in its own function because of needing to import the surrogate model
     #   meta graph after building the translator so we can get the scalefactor. Keeps things
@@ -226,7 +206,6 @@ class Model:
         # Divide by some constants to get physical numbers. Only take
         #   the first three components because the 4th one is for vsweep (and it's just 1.0).
         self.plasma_info = tf.identity(self.phys_input / scalefactor[0:3],
-                                       # tf.concat([scalefactor[0:3], scalefactor[4:6]], 0),
                                        name="plasma_info")
 
     # Normalize the output of the surrogate / theory model so it can be directly compared with the
@@ -248,23 +227,21 @@ class Model:
             n_flag_inputs = hyperparams['n_flag_inputs']
             n_phys_inputs = hyperparams['n_phys_inputs']
             is_synth_flag = self.X_phys[:, 0:1]
-            is_bad_flag = self.X_phys[:, 1:2]
+            # is_bad_flag = self.X_phys[:, 1:2]
 
             self.X_I = self.X[:, hyperparams['n_inputs']:]
             # For backwards compatibility ._. (keeping tensor names the same)
             self.model_output = tf.identity(self.theory_output_normed, name="model_output")
+            batch_size = tf.cast(tf.shape(input=self.model_output)[0], tf.float32)
 
             # L2 loss on the plasma parmaeters if they are given
             #   (set by the first X_phys component which is the "is synthetic" flag).
             # Multiply the first flag (=1 if synthetic, 0 if not so we don't
-            #   try to fit physics paramters for sweeps without already known physical parameters.
-            # Multiply by NOT second component of X_phys (flag for bad sweeps -- we never want to
-            #   try to fit the physical parameters for a bad sweep). (this isn't true anymore)
-            # Don't specifiy the end of the slice for X_phys[:, n_flag_inputs:]
+            #   try to fit physics paramters for sweeps without known physical parameters.
+            # We don't specifiy the end of the slice for X_phys[:, n_flag_inputs:]
             #   because it should all just be the physical parameters after the flag inputs.
             self.loss_physics = (hyperparams['loss_physics'] * 0.5 *
                                  tf.reduce_sum(input_tensor=is_synth_flag *
-                                               # (1.0 - is_bad_flag) *
                                                (self.X_phys[:, n_flag_inputs:] * scalefactor[0:3] -
                                                 self.phys_input[:, 0:n_phys_inputs]) ** 2))
 
@@ -272,38 +249,36 @@ class Model:
             self.l1_CNN_output = (hyperparams['l1_CNN_output'] *
                                   tf.reduce_sum(input_tensor=tf.math.abs(self.CNN_output)))
 
-            # Penalize errors in the rebuilt current trace. But! If the sweeps is classified
-            #   as bad, don't penalize the reconstruction -- instead we give it a constant error
-            #   for that sweep.
+            # Penalize errors in the rebuilt current trace only for the portions set by the
+            #   attention mask. Normalize by the standard deviation of the sweep so that small
+            #   sweeps are treated with a similar level of importance to taller ones.
             self.loss_rebuilt = (tf.reduce_sum(input_tensor=(self.X_I - self.model_output) ** 2 *
                                                self.attention_mask[:, 0, :, 0] /
-                                               tf.math.reduce_std(self.X_I, axis=1, keepdims=True) * 
-                                               (1.0 - self.class_estimate),
+                                               tf.math.reduce_std(self.X_I, axis=1, keepdims=True),
                                                name="loss_rebuilt") *
                                  hyperparams['loss_rebuilt'])
 
-            # Loss for accurately classifying sweeps for labeled sweeps (synthetic) only.
-            epsilon = 1e-4  # So that the log / gradients don't blow up.
-            misclass_error = (- (is_bad_flag * tf.math.log(self.class_estimate + epsilon)) -
-                              (1 - is_bad_flag) * tf.math.log(1 - self.class_estimate + epsilon))
-            self.loss_misclass = (tf.reduce_sum(input_tensor=(misclass_error *
-                                                              is_synth_flag
-                                                              )) * hyperparams['loss_misclass'])
-
-            # Constant penalty for thinking it's a bad sweep (and it's not labeled as a bad one --
-            #   but it could still be bad).
-            self.loss_bad_penalty = tf.reduce_sum(input_tensor=((1 - is_bad_flag) *
-                                                                self.class_estimate * tf.math.reduce_std(self.X_I, axis=1, keepdims=True) *
-                                                                hyperparams['loss_bad_penalty']))
+            # Penalize the difference between the desired attention mask (if manually labeled) and
+            #   the one the network produces. The attention label is just a bunch of ones up to
+            #   the given coordinate, and zeros after (and then normalized). Epsilon of 1e-3 to
+            #   avoid divide-by-zero errors.
+            loss_attn = (self.X_attn_label[:, 0:1] *
+                         (self.attention_mask[:, 0, :, 0] -
+                          tf.cast(tf.sequence_mask(self.X_attn_label[:, 2], 256), tf.float32) *
+                          256 / (self.X_attn_label[:, 2:3] + 1e-3)) ** 2 *
+                         (batch_size / (tf.reduce_sum(self.X_attn_label[:, 0:1]) + 1e-3)))
+            self.loss_attn_labels = (tf.reduce_sum(input_tensor=loss_attn) *
+                                     hyperparams['l2_attn_label'])
 
             # Divide model loss by batch size to keep loss consistent regardless of input size.
             self.loss_model = ((self.loss_rebuilt +
                                 # self.attention_loss +
                                 self.loss_physics +
-                                self.loss_misclass +
+                                # self.loss_misclass +
                                 # self.loss_bad_penalty +
+                                self.loss_attn_labels +
                                 self.l1_CNN_output) /
-                               tf.cast(tf.shape(input=self.model_output)[0], tf.float32))
+                               batch_size)
             self.loss_reg = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.REGULARIZATION_LOSSES)
             self.loss_total = tf.add_n([self.loss_model] + self.loss_reg, name="loss_total")
 
@@ -318,11 +293,12 @@ class Model:
                                                         hyperparams['beta2'],
                                                         hyperparams['epsilon'])
             # If you want to try using tensor cores as part of the training process
-            #   (but it's been slower or just NaNs for me for some reason).
+            #   (but it's been slower or just NaNs on me for some reason).
             # self.opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(self.opt)
             self.grads = self.opt.compute_gradients(self.loss_total, var_list=self.vars)
             self.training_op = self.opt.apply_gradients(self.grads)
 
+            # Gradient clipping
             # grads, pvars = zip(*self.opt.compute_gradients(self.loss_total,
             #                                                var_list=self.vars))
             # grads, _ = tf.clip_by_global_norm(grads, 10.0)
@@ -341,13 +317,12 @@ class Model:
     #   is insufficient.
     def plot_comparison(self, sess, hyperparams, save_path, epoch):
         (model_output, theory_output, phys_numbers, data_mean, data_ptp, data_input,
-         attn_mask, badness
+         attn_mask
          ) = sess.run([self.model_output, self.theory_output_normed, self.plasma_info,
                        self.data_mean[hyperparams['n_inputs']:],
                        self.data_ptp[hyperparams['n_inputs']:],
                        self.X,
-                       self.attention_mask,
-                       self.class_estimate],
+                       self.attention_mask],
                       feed_dict={self.training: False})
 
         batch_size = theory_output.shape[0]
@@ -381,8 +356,7 @@ class Model:
                             fontsize=6)
             # Print the maximum attention value (useful for evaluating the attention portion).
             axes[x, y].text(0.6, 0.05,
-                            "attn max: {:.3f}".format(np.max(attn_mask[randidx[x, y], 0, :, 0])) +
-                            "\nbadness: {:.3f}".format(badness[randidx[x, y], 0]),
+                            "attn max: {:.3f}".format(np.max(attn_mask[randidx[x, y], 0, :, 0])),
                             transform=axes[x, y].transAxes, fontsize=6)
             # Display a heatmap of the attention values on the plot.
             mask_color = np.ones((attn_mask[randidx[x, y]].shape[1], 4))

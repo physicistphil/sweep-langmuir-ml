@@ -15,6 +15,7 @@ import get_data
 import wandb
 
 
+# Putting this in a separate function allows me to call it from notebooks easily
 def train(hyperparams):
     # I have not yet updated the code to be native to tensorflow 2.
     tf.compat.v1.disable_v2_behavior()
@@ -83,9 +84,6 @@ def train(hyperparams):
         training_vars.remove(var)
     model.vars = training_vars
 
-    # Build the classification portion of the model.
-    model.build_classifier(hyperparams)
-
     # Calculate the loss for our model
     model.build_loss(hyperparams, scalefactor)
 
@@ -102,7 +100,7 @@ def train(hyperparams):
 
     # Initialize tensorflow configuration and variables.
     init = tf.compat.v1.global_variables_initializer()
-    saver = tf.compat.v1.train.Saver()
+    saver = tf.compat.v1.train.Saver(max_to_keep=21)
     # For batch normalization updates, if used.
     extra_update_ops = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.UPDATE_OPS)
     # Allow GPU memory to grow instead of allocating all memory on the GPU from the start.
@@ -212,7 +210,7 @@ if __name__ == '__main__':
                    #   physical parameters (value = 1) that it can use in the loss function.
                    #   Real datasets have a value of 0.
                    # The other flag is used for labeling bad sweeps. 1=bad, 0=good.
-                   'n_flag_inputs': 2,
+                   'n_flag_inputs': 1,  # 1 for no bad sweep penalty
                    'n_phys_inputs': 3,  # n_e, V_p and T_e (for now).
                    # CNN parameters.
                    'attn_filters': 16,  # Number of filters used in the attention portion.
@@ -220,17 +218,18 @@ if __name__ == '__main__':
                    'filters': 8,  # Number of filters used in the translator portion.
                    'class_width': 16,
                    # Loss weights.
-                   'loss_rebuilt': 6.0,  # Controls the influence of the rebuilt curve error.
-                   'loss_physics': 6.0,  # Strength of phys param matching for synthetic sweeps.
-                   'loss_misclass': 6.0,
-                   'loss_bad_penalty': 48.0,
+                   'loss_rebuilt': 1.0,  # Controls the influence of the rebuilt curve error.
+                   'loss_physics': 1.0,  # Strength of phys param matching for synthetic sweeps.
+                   # 'loss_misclass': 6.0,
+                   # 'loss_bad_penalty': 48.0,
                    'l1_CNN_output': 0.0,  # L1 on output of CNN (phys_input).
                    'l2_CNN': 1e-4,  # L2 regularization on CNNs in the model.
                    'l2_discrepancy': 1.0,
                    'l2_translator': 0.00,  # L2 regularization on the FFNN portion of translator.
                    'l2_classifier': 0.00,
+                   'l2_attn_label': 24.0,
                    # Optimization hyperparamters for the adam optimizer
-                   'learning_rate': 3e-4,
+                   'learning_rate': 1e-4,
                    'beta1': 0.9,
                    'beta2': 0.999,
                    'epsilon': 1e-8,
@@ -238,7 +237,7 @@ if __name__ == '__main__':
                    'batch_momentum': 0.95,  # Momentum used in batch normalization calculation.
                    'batch_size': 128,  # 128 seems optimal.
                    # Training info.
-                   'steps': 60,
+                   'steps': 200,
                    'seed': 137,
                    'restore': False,  # Controls if we restore on an existing model.
                    'restore_model': "model-AAA-final",  # Which model to restore on.
@@ -246,25 +245,26 @@ if __name__ == '__main__':
                    # Data parameters.
                    'frac_train': 0.8,  # Fraction of data to train on.
                    'frac_test': 0.2,  # Fraction of data to test on.
-                   'datasets': ['mirror1',  # Real / experiment datasets to train on.
-                                'mirror2',
-                                'mirror3',
-                                'mirror4',
+                   'datasets': ['mirror1_cut',  # Real / experiment datasets to train on.
+                                'mirror2_cut',
+                                'mirror3_cut',
+                                'mirror4_cut',
                                 # 'mirror5',  # set aside for validation
                                 'edge1',
-                                'edge2',
-                                'core',
+                                # 'edge2',
+                                # 'core',
                                 'walt1',
-                                'mirror1_avg',
-                                'mirror2_avg',
-                                'mirror3_avg',
-                                'mirror4_avg',
+                                # 'mirror1_avg',
+                                # 'mirror2_avg',
+                                # 'mirror3_avg',
+                                # 'mirror4_avg',
                                 # 'mirror5_avg',  # set aside for validation
-                                'edge1_avg',
-                                'edge2_avg',
-                                'core_avg',
-                                'walt1_avg',
-                                'smpd_01_xy'],
+                                # 'edge1_avg',
+                                # 'edge2_avg',
+                                # 'core_avg',
+                                # 'walt1_avg',
+                                # 'smpd_01_xy'
+                                ],
                    # Which synthetic dataset(s) to use.
                    'datasets_synthetic': ['15-18_-50-40_0-1-12_-120-100_corrupt-esat_0-5-5_normed_w-rootfunc-v2'],
                    # Which bad datasets to use (for the classification portion).
@@ -272,16 +272,16 @@ if __name__ == '__main__':
                    # Examples to use from _each_ dataset (use all in dataset if # too large).
                    'num_examples': 1 * 2 ** 15,  # 15, 17, 15
                    # Examples to use from _each_ dataset (use all in dataset if # too large)
-                   'num_synthetic_examples': 1 * int(1.5 * 2 ** 17),
+                   'num_synthetic_examples': 1 * int(1.5 * 2 ** 15),
                    # Examples to use from the bad examples dataset
-                   'num_bad_examples': 2 ** 17,
+                   'num_bad_examples': 0,
                    # The scale of the random offset applied to the synthetic data.
                    'offset_scale': 0.0,
                    # Scale of noise applied to synthetic data. 1.0 =  1x the height of an exmaple.
                    'noise_scale': 0.07
                    }
     # Notes for the training run that show up on wandb.
-    notes = "Trying with kamil data, better bad sweeps v3. Loss bad penalty test (penalty=48). Scaling rebuilt loss by sweep std. With classifier (loss = 6)"
+    notes = "[test] Training with attn loss using mask from labels. more data"
     wandb.init(project="sweep-langmuir-ml", sync_tensorboard=True, config=hyperparams,
                notes=notes)
     # Print hyperparameters and notes so they show up in the terminal.

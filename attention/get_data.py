@@ -19,27 +19,35 @@ def sample_datasets(hyperparams):
     # Number of synthetic examples to sample from each dataset
     num_synthetic_examples = hyperparams['num_synthetic_examples']
     # Number of bad examples to sample from each dataset
-    num_bad_examples = hyperparams['num_bad_examples']
 
     sweeps = []
+    sweeps_labels = []
     if num_examples != 0:
         for i, data_file in enumerate(hyperparams['datasets']):
             temp_data = np.load("../../data_training/" + data_file + ".npz")['sweeps']
-            np.random.seed(seed + i)
-            np.random.shuffle(temp_data)
+            # np.random.seed(seed + i)
+            # np.random.shuffle(temp_data)
             temp_data = temp_data[0:temp_data.shape[0] if num_examples > temp_data.shape[0]
                                   else num_examples]
             # Remove offsets
             temp_data[:, 256:512] -= np.mean(temp_data[:, 256:256 + 32], axis=1, keepdims=True)
             sweeps.append(temp_data)
 
+            try:
+                temp_data_labels = np.load("../../data_training/" + data_file + "_labels.npz")['labels']
+            except:
+                print("Labels not found for {}".format(data_file))
+                temp_data_labels = np.zeros((temp_data.shape[0], 3))
+            sweeps_labels.append(temp_data_labels)
+        sweeps_labels = np.concatenate(sweeps_labels, axis=0)
+
         sweeps = np.concatenate(sweeps, axis=0)
-        # Add 5 zeros after each sweep -- first zero is a flag indicating whether the following
+        # Add 4 zeros after each sweep -- first zero is a flag indicating whether the following
         #   physical parameters (ne, Vp, Te) are included in the loss function calculation. They are
-        #   not included for physical sweeps because they have not been analyzed yet. The second
-        #   zero indicates that these are not bad sweeps and should not be used to train the
-        #   classifier. The remain 3 zeros are the physical parameters specified above.
-        sweeps = np.concatenate([sweeps, np.zeros((sweeps.shape[0], 5))], axis=1)
+        #   not included for  (real) sweeps because they have not been analyzed yet.
+        #   The remain 3 zeros are the physical parameters specified above.
+        sweeps = np.concatenate([sweeps, np.zeros((sweeps.shape[0], 4))], axis=1)
+        sweeps = np.concatenate([sweeps, sweeps_labels], axis=1)
 
         print("Real examples: {}...".format(sweeps.shape[0]), end=" ")
         sys.stdout.flush()
@@ -48,8 +56,8 @@ def sample_datasets(hyperparams):
         sweeps_synthetic = []
         for i, data_file in enumerate(hyperparams['datasets_synthetic']):
             temp_data = np.load("../../data_synthetic/" + data_file + ".npz")['sweeps']
-            np.random.seed(seed + i + 1000)
-            np.random.shuffle(temp_data)
+            # np.random.seed(seed + i + 1000)
+            # np.random.shuffle(temp_data)
             temp_data = temp_data[0:temp_data.shape[0]
                                   if num_synthetic_examples > temp_data.shape[0]
                                   else num_synthetic_examples]
@@ -60,7 +68,9 @@ def sample_datasets(hyperparams):
             sweeps_synthetic.append(temp_data)
         sweeps_synthetic = np.concatenate(sweeps_synthetic, axis=0)
         # Insert flag indicating that these are not bad sweeps (they're good).
-        sweeps_synthetic = np.insert(sweeps_synthetic, n_inputs * 2 + 1, 0, axis=1)
+        # sweeps_synthetic = np.insert(sweeps_synthetic, n_inputs * 2 + 1, 0, axis=1)
+        sweeps_synthetic = np.concatenate([sweeps_synthetic,
+                                           np.zeros((sweeps_synthetic.shape[0], 3))], axis=1)
 
         print("Synthetic examples: {}...".format(sweeps_synthetic.shape[0]), end=" ")
         sys.stdout.flush()
@@ -70,29 +80,6 @@ def sample_datasets(hyperparams):
         else:
             sweeps = sweeps_synthetic
         del sweeps_synthetic
-
-    # Bad exampels are not necessarily synthetic (no physics loss will be calculated regardless).
-    if num_bad_examples != 0:
-        sweeps_bad = []
-        # The higher level path is specified in the file path because it could be synthetic or real.
-        for i, data_file in enumerate(hyperparams['datasets_bad']):
-            temp_data = np.load("../../" + data_file + ".npz")['sweeps']
-            np.random.seed(seed + i + 2000)
-            np.random.shuffle(temp_data)
-            temp_data = temp_data[0:temp_data.shape[0]
-                                  if num_bad_examples > temp_data.shape[0]
-                                  else num_bad_examples]
-            temp_data[:, 0:n_inputs * 2] = preprocess.add_offset(temp_data[:, 0:n_inputs * 2],
-                                                                 hyperparams, epoch=0)
-            # No need to add noise here because, well, these are bad sweeps.
-            sweeps_bad.append(temp_data)
-        # Make the list into a single numpy array.
-        sweeps_bad = np.concatenate(sweeps_bad, axis=0)
-        print("Bad examples: {}...".format(sweeps_bad.shape[0]), end=" ")
-        # No length check of the sweeps here because the model simply will not work with just
-        #   bad examples.
-        sweeps = np.concatenate([sweeps, sweeps_bad])
-        del sweeps_bad
 
     # Find the voltage sweep and current means and peak-to-peaks so the model is easier to train.
     vsweep_mean = np.full(hyperparams['n_inputs'], np.mean(sweeps[:, 0:n_inputs]))
